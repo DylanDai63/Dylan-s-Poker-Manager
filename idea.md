@@ -182,6 +182,7 @@ alter table sessions disable row level security;
 | 项 | 决策 |
 |---|---|
 | 范围数据存哪 | 静态 JS 常量，不进 Supabase |
-| 范围数据格式 | 每个位置 × 场景一个对象，hand → {r, c, f}，f 默认 = 1 - r - c |
+| 范围数据来源 | tyloo/poker-range-analyzer (MIT) 的 6-max GTO 频率版作为底；早位 (UTG/UTG+1/MP/LJ) 自己写了更紧的 9-max 版本，CO/BTN/SB 直接用 6-max 数据 |
+| 范围数据格式 | 每手牌 → `[raise, call]`（0..1），fold 隐式 = 1 - r - c |
 | 编辑时间选择 | `<input type="datetime-local">`，iOS 原生选择器 |
 | 删除确认 | 简单 `confirm()` |

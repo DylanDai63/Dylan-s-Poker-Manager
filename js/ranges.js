@@ -1,12 +1,17 @@
-// Approximate preflop ranges for 9-max NLHE cash, 100bb, no ante.
-// These are hand-tuned approximations — NOT solver output. Frequencies
-// are rough. Easy to replace later by re-typing any chart below.
+// Preflop ranges for 9-max NLHE cash, 100bb effective.
 //
-// Encoding:
-//   RFI[pos]            → array of hands that open-raise from that position
-//   VS_UTG[pos]         → { R, M, C } where:
-//                           R = pure 3-bet, M = 50/50 3-bet/call, C = pure call
-//                         anything not listed is fold
+// Source / attribution:
+//   Base RFI data adapted from tyloo/poker-range-analyzer (MIT license),
+//   which derives from solver output for 6-max. Early positions are
+//   tightened to fit 9-max position dynamics; late positions (CO/BTN/SB)
+//   are used as-is because they behave similarly between formats.
+//   vs UTG defenses are reasonable approximations consistent with standard
+//   linear/polarized 3-bet patterns at 100bb.
+//
+// Format:
+//   Each chart is a map: hand → [raiseFreq, callFreq]    (each 0..1)
+//   fold = 1 - raise - call (implicit)
+//   Hands not listed = pure fold.
 
 export const RANKS = ["A","K","Q","J","T","9","8","7","6","5","4","3","2"];
 
@@ -18,213 +23,284 @@ export const POSITION_LABEL = {
   HJ: "HJ",   CO: "CO",      BTN: "BTN", SB: "SB", BB: "BB",
 };
 
-// (row, col) → hand string in standard preflop matrix layout
-// Diagonal: pocket pairs. Above diagonal: suited. Below diagonal: offsuit.
 export function handAt(row, col) {
   if (row === col) return RANKS[row] + RANKS[row];
   if (row < col)   return RANKS[row] + RANKS[col] + "s";
   return RANKS[col] + RANKS[row] + "o";
 }
 
-// ───────────────────────── RFI ─────────────────────────
+// Helper: builds a chart from 0-100 entries. Single number = raise %.
+// [raise, call] = both percents. Anything else defaults to fold.
+function build(map) {
+  const out = {};
+  for (const [hand, val] of Object.entries(map)) {
+    if (Array.isArray(val)) out[hand] = [val[0] / 100, val[1] / 100];
+    else out[hand] = [val / 100, 0];
+  }
+  return out;
+}
 
-const _UTG = [
-  "AA","KK","QQ","JJ","TT","99","88","77",
-  "AKs","AQs","AJs","ATs",
-  "KQs","KJs","KTs",
-  "QJs","QTs",
-  "JTs",
-  "T9s",
-  "AKo","AQo","AJo",
-  "KQo",
-];
+// ─────────────────────────── RFI ───────────────────────────
 
-const _UTG1 = [..._UTG,
-  "66",
-  "A9s",
-  "K9s",
-  "Q9s",
-  "J9s",
-  "T8s",
-  "98s",
-  "ATo",
-  "KJo",
-];
+// UTG — tightest position in 9-max, ~10%
+const _UTG = build({
+  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
+  "66": 50,  "55": 25,
+  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
+  "A9s": 25, "A5s": 25,
+  "KQs": 100, "KJs": 100, "KTs": 50,
+  "QJs": 100, "QTs": 25,
+  "JTs": 100,
+  "AKo": 100, "AQo": 100, "AJo": 50,
+  "KQo": 50,
+});
 
-const _MP = [..._UTG1,
-  "55",
-  "A8s","A5s",
-  "K8s",
-  "Q8s",
-  "J8s",
-  "T7s",
-  "97s",
-  "87s",
-  "A9o",
-  "KTo","QJo",
-];
+// UTG+1 — ~13%
+const _UTG1 = build({
+  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
+  "66": 75, "55": 50,
+  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
+  "A9s": 50, "A5s": 50, "A4s": 25,
+  "KQs": 100, "KJs": 100, "KTs": 75,
+  "QJs": 100, "QTs": 50,
+  "JTs": 100, "T9s": 50,
+  "AKo": 100, "AQo": 100, "AJo": 75,
+  "KQo": 75, "KJo": 25,
+});
 
-const _LJ = [..._MP,
-  "44",
-  "A7s","A4s","A3s","A2s",
-  "K7s",
-  "Q7s",
-  "J7s",
-  "T6s",
-  "96s",
-  "86s",
-  "76s",
-  "A8o",
-  "QTo","JTo",
-];
+// MP — ~15% (≈ 6-max UTG)
+const _MP = build({
+  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
+  "66": 100, "55": 75, "44": 25,
+  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
+  "A9s": 75, "A8s": 50, "A5s": 75, "A4s": 50, "A3s": 25,
+  "KQs": 100, "KJs": 100, "KTs": 100, "K9s": 25,
+  "QJs": 100, "QTs": 75, "Q9s": 25,
+  "JTs": 100, "J9s": 25,
+  "T9s": 75, "98s": 25,
+  "AKo": 100, "AQo": 100, "AJo": 100, "ATo": 50,
+  "KQo": 100, "KJo": 50,
+  "QJo": 25,
+});
 
-const _HJ = [..._LJ,
-  "33",
-  "A6s",
-  "K6s","K5s",
-  "Q6s",
-  "J6s",
-  "95s",
-  "85s",
-  "75s",
-  "65s",
-  "54s",
-  "A7o","A6o","A5o",
-  "K9o",
-];
+// LJ — ~18% (between 6-max UTG and MP)
+const _LJ = build({
+  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
+  "66": 100, "55": 100, "44": 75, "33": 50,
+  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
+  "A9s": 100, "A8s": 75, "A7s": 50, "A5s": 100, "A4s": 75, "A3s": 50,
+  "KQs": 100, "KJs": 100, "KTs": 100, "K9s": 75, "K8s": 25,
+  "QJs": 100, "QTs": 100, "Q9s": 50, "Q8s": 25,
+  "JTs": 100, "J9s": 50, "J8s": 25,
+  "T9s": 100, "T8s": 50,
+  "98s": 75, "87s": 50,
+  "76s": 25,
+  "AKo": 100, "AQo": 100, "AJo": 100, "ATo": 75,
+  "KQo": 100, "KJo": 75, "KTo": 25,
+  "QJo": 50,
+});
 
-const _CO = [..._HJ,
-  "22",
-  "K4s","K3s","K2s",
-  "Q5s","Q4s",
-  "J5s",
-  "T5s",
-  "94s",
-  "84s",
-  "74s",
-  "64s",
-  "53s",
-  "43s",
-  "A4o","A3o","A2o",
-  "K8o","K7o",
-  "Q9o","J9o","T9o","98o",
-];
+// HJ — ~21% (≈ 6-max MP)
+const _HJ = build({
+  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
+  "66": 100, "55": 100, "44": 75, "33": 50, "22": 50,
+  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
+  "A9s": 100, "A8s": 100, "A7s": 75, "A6s": 50, "A5s": 100, "A4s": 100, "A3s": 75, "A2s": 50,
+  "KQs": 100, "KJs": 100, "KTs": 100, "K9s": 100, "K8s": 50, "K7s": 25,
+  "QJs": 100, "QTs": 100, "Q9s": 75, "Q8s": 25,
+  "JTs": 100, "J9s": 75, "J8s": 25,
+  "T9s": 100, "T8s": 75,
+  "98s": 100, "97s": 50, "87s": 75, "76s": 50, "65s": 25,
+  "AKo": 100, "AQo": 100, "AJo": 100, "ATo": 100, "A9o": 25,
+  "KQo": 100, "KJo": 100, "KTo": 50,
+  "QJo": 75, "QTo": 25,
+  "JTo": 25,
+});
 
-const _BTN = [..._CO,
-  "Q3s","Q2s",
-  "J4s","J3s",
-  "T4s","T3s",
-  "93s",
-  "83s",
-  "K6o","K5o","K4o",
-  "Q8o","Q7o","Q6o",
-  "J8o","J7o",
-  "T8o",
-  "97o","87o","76o","65o","54o",
-];
+// CO — ~27% (6-max CO as-is)
+const _CO = build({
+  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
+  "66": 100, "55": 100, "44": 75, "33": 50, "22": 50,
+  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
+  "A9s": 100, "A8s": 100, "A7s": 100, "A6s": 100, "A5s": 100, "A4s": 100, "A3s": 100, "A2s": 75,
+  "KQs": 100, "KJs": 100, "KTs": 100, "K9s": 100, "K8s": 50, "K7s": 25,
+  "QJs": 100, "QTs": 100, "Q9s": 100, "Q8s": 50,
+  "JTs": 100, "J9s": 100, "J8s": 50,
+  "T9s": 100, "T8s": 75,
+  "98s": 100, "97s": 50, "87s": 100, "86s": 50, "76s": 100, "75s": 25, "65s": 75, "54s": 50,
+  "AKo": 100, "AQo": 100, "AJo": 100, "ATo": 100, "A9o": 75, "A8o": 50, "A7o": 25,
+  "KQo": 100, "KJo": 100, "KTo": 75,
+  "QJo": 100, "QTo": 50,
+  "JTo": 75,
+});
 
-// SB opens slightly tighter than BTN against blinds, more linear shape
-const _SB = [
-  "AA","KK","QQ","JJ","TT","99","88","77","66","55","44","33","22",
-  "AKs","AQs","AJs","ATs","A9s","A8s","A7s","A6s","A5s","A4s","A3s","A2s",
-  "KQs","KJs","KTs","K9s","K8s","K7s","K6s","K5s","K4s","K3s","K2s",
-  "QJs","QTs","Q9s","Q8s","Q7s","Q6s","Q5s","Q4s",
-  "JTs","J9s","J8s","J7s","J6s",
-  "T9s","T8s","T7s","T6s",
-  "98s","97s","96s",
-  "87s","86s","85s",
-  "76s","75s","74s",
-  "65s","64s","54s","53s","43s",
-  "AKo","AQo","AJo","ATo","A9o","A8o","A7o","A6o","A5o","A4o","A3o","A2o",
-  "KQo","KJo","KTo","K9o","K8o","K7o",
-  "QJo","QTo","Q9o","Q8o",
-  "JTo","J9o","J8o",
-  "T9o","T8o",
-  "98o","87o",
-];
+// BTN — ~45% (6-max BTN as-is)
+const _BTN = build({
+  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
+  "66": 100, "55": 100, "44": 100, "33": 100, "22": 100,
+  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
+  "A9s": 100, "A8s": 100, "A7s": 100, "A6s": 100, "A5s": 100, "A4s": 100, "A3s": 100, "A2s": 100,
+  "KQs": 100, "KJs": 100, "KTs": 100, "K9s": 100, "K8s": 100, "K7s": 100, "K6s": 100, "K5s": 100,
+  "K4s": 75, "K3s": 75, "K2s": 50,
+  "QJs": 100, "QTs": 100, "Q9s": 100, "Q8s": 100, "Q7s": 75, "Q6s": 75, "Q5s": 50, "Q4s": 50,
+  "JTs": 100, "J9s": 100, "J8s": 100, "J7s": 75, "J6s": 50,
+  "T9s": 100, "T8s": 100, "T7s": 75,
+  "98s": 100, "97s": 100, "96s": 75,
+  "87s": 100, "86s": 100, "85s": 50,
+  "76s": 100, "75s": 100, "74s": 50,
+  "65s": 100, "64s": 75, "54s": 100, "53s": 75, "43s": 75, "32s": 50,
+  "AKo": 100, "AQo": 100, "AJo": 100, "ATo": 100, "A9o": 100, "A8o": 100, "A7o": 100, "A6o": 100,
+  "A5o": 100, "A4o": 100, "A3o": 75, "A2o": 75,
+  "KQo": 100, "KJo": 100, "KTo": 100, "K9o": 100, "K8o": 75, "K7o": 50,
+  "QJo": 100, "QTo": 100, "Q9o": 100, "Q8o": 50,
+  "JTo": 100, "J9o": 100, "J8o": 50,
+  "T9o": 100, "T8o": 75,
+  "98o": 100, "97o": 50, "87o": 100, "76o": 75, "65o": 50,
+});
+
+// SB — ~38% (6-max SB lightly trimmed)
+const _SB = build({
+  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
+  "66": 100, "55": 100, "44": 100, "33": 100, "22": 100,
+  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
+  "A9s": 100, "A8s": 100, "A7s": 100, "A6s": 100, "A5s": 100, "A4s": 100, "A3s": 100, "A2s": 100,
+  "KQs": 100, "KJs": 100, "KTs": 100, "K9s": 100, "K8s": 100, "K7s": 100, "K6s": 100, "K5s": 75,
+  "K4s": 75, "K3s": 50, "K2s": 50,
+  "QJs": 100, "QTs": 100, "Q9s": 100, "Q8s": 100, "Q7s": 75, "Q6s": 50, "Q5s": 25,
+  "JTs": 100, "J9s": 100, "J8s": 100, "J7s": 50, "J6s": 25,
+  "T9s": 100, "T8s": 100, "T7s": 75,
+  "98s": 100, "97s": 75,
+  "87s": 100, "86s": 50,
+  "76s": 100, "75s": 75, "65s": 100, "54s": 100, "43s": 50,
+  "AKo": 100, "AQo": 100, "AJo": 100, "ATo": 100, "A9o": 100, "A8o": 100, "A7o": 75,
+  "A6o": 75, "A5o": 75, "A4o": 50, "A3o": 50, "A2o": 50,
+  "KQo": 100, "KJo": 100, "KTo": 100, "K9o": 75, "K8o": 50,
+  "QJo": 100, "QTo": 75, "Q9o": 50,
+  "JTo": 100, "J9o": 50,
+  "T9o": 75,
+  "98o": 50,
+});
 
 export const RFI = {
-  UTG:  _UTG,
-  UTG1: _UTG1,
-  MP:   _MP,
-  LJ:   _LJ,
-  HJ:   _HJ,
-  CO:   _CO,
-  BTN:  _BTN,
-  SB:   _SB,
+  UTG: _UTG, UTG1: _UTG1, MP: _MP, LJ: _LJ,
+  HJ: _HJ,   CO: _CO,    BTN: _BTN, SB: _SB,
 };
 
-// ───────────────────────── vs UTG open ─────────────────────────
+// ─────────────────────────── vs UTG open ───────────────────────────
+// UTG opens ~10%, so defenses are tight and linear-leaning, with some
+// bluff 3-bets from late position / BB. Each entry: [3betFreq, callFreq].
+
+const _UTG1_VS_UTG = build({
+  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
+  "JJ": [50, 50],
+  "TT": [0, 100], "99": [0, 100], "88": [0, 100], "77": [0, 100],
+  "AKs": [100, 0], "AQs": [25, 75], "AJs": [0, 100], "ATs": [0, 100],
+  "KQs": [0, 100], "KJs": [0, 100],
+  "QJs": [0, 100], "JTs": [0, 100],
+  "AKo": [100, 0], "AQo": [0, 100],
+});
+
+const _MP_VS_UTG = build({
+  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
+  "JJ": [50, 50], "TT": [0, 100], "99": [0, 100], "88": [0, 100], "77": [0, 100], "66": [0, 50],
+  "AKs": [100, 0], "AQs": [50, 50], "AJs": [0, 100], "ATs": [0, 100],
+  "KQs": [0, 100], "KJs": [0, 100], "KTs": [0, 75],
+  "QJs": [0, 100], "QTs": [0, 50],
+  "JTs": [0, 100], "T9s": [0, 50],
+  "AKo": [100, 0], "AQo": [0, 100], "AJo": [0, 50],
+});
+
+const _LJ_VS_UTG = build({
+  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
+  "JJ": [75, 25], "TT": [0, 100], "99": [0, 100], "88": [0, 100], "77": [0, 100], "66": [0, 75], "55": [0, 50],
+  "AKs": [100, 0], "AQs": [50, 50], "AJs": [25, 75], "ATs": [0, 100], "A5s": [25, 0], "A4s": [25, 0],
+  "KQs": [25, 75], "KJs": [0, 100], "KTs": [0, 100],
+  "QJs": [0, 100], "QTs": [0, 75], "JTs": [0, 100], "T9s": [0, 75], "98s": [0, 50],
+  "AKo": [100, 0], "AQo": [25, 75], "AJo": [0, 75], "KQo": [0, 50],
+});
+
+const _HJ_VS_UTG = build({
+  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
+  "JJ": [75, 25], "TT": [25, 75], "99": [0, 100], "88": [0, 100], "77": [0, 100], "66": [0, 100], "55": [0, 75], "44": [0, 50],
+  "AKs": [100, 0], "AQs": [50, 50], "AJs": [25, 75], "ATs": [0, 100], "A9s": [0, 75],
+  "A5s": [50, 0], "A4s": [25, 0],
+  "KQs": [25, 75], "KJs": [0, 100], "KTs": [0, 100], "K9s": [0, 50],
+  "QJs": [0, 100], "QTs": [0, 100], "JTs": [0, 100], "T9s": [0, 100], "98s": [0, 75], "87s": [0, 50],
+  "AKo": [100, 0], "AQo": [25, 75], "AJo": [0, 100], "KQo": [0, 75], "KJo": [0, 25],
+});
+
+const _CO_VS_UTG = build({
+  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
+  "JJ": [75, 25], "TT": [25, 75], "99": [0, 100], "88": [0, 100], "77": [0, 100], "66": [0, 100], "55": [0, 100], "44": [0, 75], "33": [0, 50],
+  "AKs": [100, 0], "AQs": [75, 25], "AJs": [25, 75], "ATs": [0, 100], "A9s": [0, 100],
+  "A5s": [50, 0], "A4s": [50, 0], "A3s": [25, 0],
+  "KQs": [50, 50], "KJs": [0, 100], "KTs": [0, 100], "K9s": [0, 75],
+  "QJs": [0, 100], "QTs": [0, 100], "Q9s": [0, 50],
+  "JTs": [0, 100], "J9s": [0, 75],
+  "T9s": [0, 100], "T8s": [0, 50],
+  "98s": [0, 100], "87s": [0, 75], "76s": [0, 50], "65s": [0, 25],
+  "AKo": [100, 0], "AQo": [50, 50], "AJo": [0, 100], "ATo": [0, 50],
+  "KQo": [25, 75], "KJo": [0, 75],
+});
+
+const _BTN_VS_UTG = build({
+  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
+  "JJ": [75, 25], "TT": [25, 75], "99": [0, 100], "88": [0, 100], "77": [0, 100], "66": [0, 100], "55": [0, 100], "44": [0, 100], "33": [0, 75], "22": [0, 75],
+  "AKs": [100, 0], "AQs": [75, 25], "AJs": [25, 75], "ATs": [0, 100], "A9s": [0, 100], "A8s": [0, 75], "A7s": [0, 50],
+  "A5s": [50, 25], "A4s": [50, 25], "A3s": [25, 50], "A2s": [25, 25],
+  "KQs": [50, 50], "KJs": [25, 75], "KTs": [0, 100], "K9s": [0, 100], "K8s": [0, 50],
+  "QJs": [25, 75], "QTs": [0, 100], "Q9s": [0, 100], "Q8s": [0, 50],
+  "JTs": [25, 75], "J9s": [0, 100], "J8s": [0, 50],
+  "T9s": [25, 75], "T8s": [0, 75],
+  "98s": [0, 100], "87s": [0, 100], "76s": [0, 75], "65s": [0, 75], "54s": [0, 50],
+  "AKo": [100, 0], "AQo": [50, 50], "AJo": [25, 75], "ATo": [0, 75],
+  "KQo": [25, 75], "KJo": [0, 75], "QJo": [0, 50],
+});
+
+const _SB_VS_UTG = build({
+  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0], "JJ": [100, 0],
+  "TT": [50, 0], "99": [25, 0], "88": [0, 0], "77": [0, 0],
+  "AKs": [100, 0], "AQs": [100, 0], "AJs": [50, 0], "ATs": [25, 0],
+  "A5s": [50, 0], "A4s": [50, 0],
+  "KQs": [50, 0], "KJs": [25, 0],
+  "QJs": [25, 0],
+  "AKo": [100, 0], "AQo": [50, 0],
+});
+
+const _BB_VS_UTG = build({
+  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
+  "JJ": [50, 50], "TT": [25, 75], "99": [0, 100], "88": [0, 100], "77": [0, 100], "66": [0, 100], "55": [0, 100], "44": [0, 100], "33": [0, 100], "22": [0, 100],
+  "AKs": [100, 0], "AQs": [50, 50], "AJs": [25, 75], "ATs": [0, 100], "A9s": [0, 100], "A8s": [0, 100], "A7s": [0, 75], "A6s": [0, 75],
+  "A5s": [50, 50], "A4s": [50, 50], "A3s": [25, 50], "A2s": [25, 50],
+  "KQs": [25, 75], "KJs": [25, 75], "KTs": [0, 100], "K9s": [0, 100], "K8s": [0, 75], "K7s": [0, 50],
+  "QJs": [25, 75], "QTs": [0, 100], "Q9s": [0, 100], "Q8s": [0, 50],
+  "JTs": [25, 75], "J9s": [0, 100], "J8s": [0, 75],
+  "T9s": [0, 100], "T8s": [0, 75],
+  "98s": [0, 100], "97s": [0, 75], "87s": [0, 100], "76s": [0, 100], "65s": [0, 100], "54s": [0, 75], "43s": [0, 50],
+  "AKo": [75, 25], "AQo": [25, 75], "AJo": [0, 100], "ATo": [0, 100], "A9o": [0, 75],
+  "KQo": [25, 75], "KJo": [0, 100], "KTo": [0, 75],
+  "QJo": [0, 100], "QTo": [0, 50],
+  "JTo": [0, 75],
+});
 
 export const VS_UTG = {
-  UTG1: {
-    R: ["AA","KK","QQ","AKs","AKo"],
-    M: ["JJ","AQs"],
-    C: ["TT","99","88","77","AQo","AJs","ATs","KQs","JTs"],
-  },
-  MP: {
-    R: ["AA","KK","QQ","AKs","AKo"],
-    M: ["JJ","AQs"],
-    C: ["TT","99","88","77","66","AQo","AJs","ATs","KQs","KJs","QJs","JTs","T9s"],
-  },
-  LJ: {
-    R: ["AA","KK","QQ","AKs","AKo"],
-    M: ["JJ","AQs"],
-    C: ["TT","99","88","77","66","55","AQo","AJs","ATs","KQs","KJs","KTs","QJs","QTs","JTs","T9s","98s"],
-  },
-  HJ: {
-    R: ["AA","KK","QQ","AKs","AKo"],
-    M: ["JJ","AQs","A5s"],
-    C: ["TT","99","88","77","66","55","44","AQo","AJs","ATs","A4s","KQs","KJs","KTs","QJs","QTs","JTs","T9s","98s","87s"],
-  },
-  CO: {
-    R: ["AA","KK","QQ","AKs","AKo"],
-    M: ["JJ","TT","AQs","AJs","A5s","A4s"],
-    C: ["99","88","77","66","55","44","33","AQo","ATs","A9s","KQs","KJs","KTs","K9s","QJs","QTs","Q9s","JTs","J9s","T9s","T8s","98s","87s","76s","65s","KQo"],
-  },
-  BTN: {
-    R: ["AA","KK","QQ","AKs","AKo"],
-    M: ["JJ","TT","AQs","AJs","A5s","A4s","KQs","K9s"],
-    C: ["99","88","77","66","55","44","33","22","ATs","A9s","A8s","A7s","A6s","A3s","A2s","KJs","KTs","K8s","QJs","QTs","Q9s","Q8s","JTs","J9s","J8s","T9s","T8s","98s","87s","76s","65s","54s","AQo","AJo","KQo"],
-  },
-  SB: {
-    R: ["AA","KK","QQ","JJ","AKs","AKo","AQs"],
-    M: ["TT","AQo"],
-    C: ["99","88","77","AJs","ATs","KQs","KJs","QJs","JTs"],
-  },
-  BB: {
-    R: ["AA","KK","QQ","AKs","AKo","A5s","A4s"],
-    M: ["JJ","AQs"],
-    C: [
-      "TT","99","88","77","66","55","44","33","22",
-      "AJs","ATs","A9s","A8s","A7s","A6s","A3s","A2s",
-      "KQs","KJs","KTs","K9s","K8s",
-      "QJs","QTs","Q9s",
-      "JTs","J9s",
-      "T9s","T8s",
-      "98s","97s","87s","86s","76s","65s","54s",
-      "AQo","AJo","ATo","KQo","KJo","QJo","JTo",
-    ],
-  },
+  UTG1: _UTG1_VS_UTG,
+  MP:   _MP_VS_UTG,
+  LJ:   _LJ_VS_UTG,
+  HJ:   _HJ_VS_UTG,
+  CO:   _CO_VS_UTG,
+  BTN:  _BTN_VS_UTG,
+  SB:   _SB_VS_UTG,
+  BB:   _BB_VS_UTG,
 };
 
-// ───────────────────────── lookup ─────────────────────────
+// ─────────────────────────── lookup ───────────────────────────
 
-// returns { r, c } where r+c <= 1, fold = 1 - r - c
 export function cellAction(row, col, scenario, position) {
   const hand = handAt(row, col);
-  if (scenario === "RFI") {
-    const set = RFI[position];
-    if (!set) return { r: 0, c: 0 };
-    return set.includes(hand) ? { r: 1, c: 0 } : { r: 0, c: 0 };
-  }
-  if (scenario === "VS_UTG") {
-    const chart = VS_UTG[position];
-    if (!chart) return { r: 0, c: 0 };
-    if (chart.R && chart.R.includes(hand)) return { r: 1, c: 0 };
-    if (chart.M && chart.M.includes(hand)) return { r: 0.5, c: 0.5 };
-    if (chart.C && chart.C.includes(hand)) return { r: 0, c: 1 };
-    return { r: 0, c: 0 };
-  }
-  return { r: 0, c: 0 };
+  const chart = scenario === "RFI" ? RFI[position] : VS_UTG[position];
+  if (!chart) return { r: 0, c: 0 };
+  const v = chart[hand];
+  if (!v) return { r: 0, c: 0 };
+  return { r: v[0], c: v[1] };
 }
