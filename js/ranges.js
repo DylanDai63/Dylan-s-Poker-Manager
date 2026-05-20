@@ -1,15 +1,19 @@
 // Preflop ranges for 8-max NLHE cash, 100bb effective.
 //
-// RFI (all 7 positions): imported from GTO Wizard 8-max NL50 solver,
-//   parsed from "Copy Range" per-combo output via
-//   scripts/parse_gto_wizard.py. SB has two actions (raise to 3bb + limp),
-//   stored as [r, c] frequencies.
-// vs UTG defenses: hand-tuned approximations pending GTO Wizard import.
+// All data imported from GTO Wizard 8-max NL50 solver, parsed from
+// "Copy Range" per-combo output via scripts/parse_gto_wizard.py (RFI)
+// and scripts/parse_vs_utg.py (defenses).
 //
 // Format:
 //   Each chart is a map: hand → [raiseFreq, callFreq]    (each 0..1)
 //   fold = 1 - raise - call (implicit)
 //   Hands not listed = pure fold.
+//
+// Notes on actions:
+//   RFI: r = open raise to 2bb (SB raises to 3bb). c = SB-only "limp"
+//        (complete the small blind without raising).
+//   vs UTG: r = 3-bet (sized per position: 6bb early, 7bb late, 11bb SB,
+//           12bb BB). c = call (flat the open).
 
 export const RANKS = ["A","K","Q","J","T","9","8","7","6","5","4","3","2"];
 
@@ -322,26 +326,43 @@ const _SB_VS_UTG = build({
   "KQo": [0, 29.4],
 });
 
-// BB w/ blind discount vs UTG — wide flat, polarized 3-bets only with
-// premiums + small suited-Ace blockers. No light 3-bets with KQs/KJs/
-// QJs/JTs — those are pure calls (postflop OOP, but the discount and
-// BTW IP-postflop-ish situations make calling clearly +EV).
+// BB vs UTG — GTO Wizard 8-max NL50, 3-bet 3.0% + call 39.2% = 42.3%, 104 hands
+// Huge defense range thanks to the blind discount + heads-up postflop.
+// Notable: QQ-22 ALL pure call (no 3-bet from BB OOP), 87s 46% 3-bet,
+// suited Ax 4-5 used as 3-bet bluffs, even 32s called 90%.
 const _BB_VS_UTG = build({
-  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
-  "JJ": [25, 75], "TT": [0, 100], "99": [0, 100], "88": [0, 100], "77": [0, 100], "66": [0, 100], "55": [0, 100], "44": [0, 100], "33": [0, 100], "22": [0, 100],
-  "AKs": [100, 0], "AQs": [25, 75], "AJs": [0, 100], "ATs": [0, 100], "A9s": [0, 100], "A8s": [0, 100], "A7s": [0, 100], "A6s": [0, 75],
-  "A5s": [25, 75], "A4s": [25, 75], "A3s": [0, 75], "A2s": [0, 75],
-  "KQs": [0, 100], "KJs": [0, 100], "KTs": [0, 100], "K9s": [0, 100], "K8s": [0, 75], "K7s": [0, 50], "K6s": [0, 25],
-  "QJs": [0, 100], "QTs": [0, 100], "Q9s": [0, 75], "Q8s": [0, 50],
-  "JTs": [0, 100], "J9s": [0, 100], "J8s": [0, 75],
-  "T9s": [0, 100], "T8s": [0, 75], "T7s": [0, 25],
-  "98s": [0, 100], "97s": [0, 75],
-  "87s": [0, 100], "86s": [0, 50], "76s": [0, 100], "75s": [0, 50],
-  "65s": [0, 100], "54s": [0, 75], "43s": [0, 25],
-  "AKo": [75, 25], "AQo": [0, 100], "AJo": [0, 100], "ATo": [0, 100], "A9o": [0, 50],
-  "KQo": [0, 100], "KJo": [0, 100], "KTo": [0, 75],
-  "QJo": [0, 100], "QTo": [0, 50],
-  "JTo": [0, 75],
+  "AA": [100, 0], "KK": [73.4, 26.7],
+  "QQ": [0, 100], "JJ": [0, 100], "TT": [0, 100], "99": [0, 100],
+  "88": [0, 100], "77": [0, 100], "66": [0, 100], "55": [0, 100],
+  "44": [0, 100], "33": [0, 100], "22": [0, 100],
+  "AKs": [100, 0], "AQs": [0.1, 100], "AJs": [8.3, 91.7], "ATs": [1, 99],
+  "A9s": [0, 100], "A8s": [1.1, 98.9], "A7s": [0, 100], "A6s": [1.8, 98.2],
+  "A5s": [8.5, 91.5], "A4s": [22.5, 77.5], "A3s": [20.3, 79.7], "A2s": [19.9, 80.2],
+  "KQs": [25.9, 74.1], "KJs": [20.3, 79.7], "KTs": [40.3, 59.7],
+  "K9s": [8.3, 91.7], "K8s": [0.8, 99.2], "K7s": [7.4, 92.6], "K6s": [8.2, 91.8],
+  "K5s": [0, 100], "K4s": [7.7, 92.3], "K3s": [10.7, 89.3], "K2s": [0.7, 99.3],
+  "QJs": [30.6, 69.3], "QTs": [14.3, 85.7], "Q9s": [9.2, 90.8], "Q8s": [8.2, 91.8],
+  "Q7s": [0, 100], "Q6s": [0, 100], "Q5s": [0, 100], "Q4s": [0, 100],
+  "Q3s": [0, 100], "Q2s": [0, 98.7],
+  "JTs": [18.5, 81.5], "J9s": [11, 89], "J8s": [0.4, 100],
+  "J7s": [0, 100], "J6s": [0, 100], "J5s": [0, 100], "J4s": [0, 100],
+  "J3s": [0, 100], "J2s": [0, 93.3],
+  "T9s": [27.3, 72.7], "T8s": [4.8, 95.2],
+  "T7s": [0, 100], "T6s": [0, 100], "T5s": [0, 100], "T4s": [0, 91],
+  "98s": [5.7, 94.3], "97s": [0, 100], "96s": [0, 100], "95s": [0, 100],
+  "87s": [46.1, 53.9], "86s": [0, 100], "85s": [0, 100], "84s": [0, 96],
+  "76s": [35, 65], "75s": [0, 100], "74s": [0, 100],
+  "65s": [35.5, 64.5], "64s": [0, 100], "63s": [0, 100],
+  "54s": [25.3, 74.7], "53s": [0, 100], "52s": [0, 100],
+  "43s": [8.4, 91.6], "42s": [0, 100], "32s": [0, 89.6],
+  "AKo": [14.7, 85.3], "AQo": [2.5, 97.5], "AJo": [9.5, 90.5], "ATo": [7.1, 92.9],
+  "A9o": [0, 100], "A8o": [3.1, 73.3], "A5o": [14.2, 34.1], "A4o": [0.8, 0],
+  "KQo": [0, 100], "KJo": [0, 100], "KTo": [0, 100],
+  "QJo": [0, 100], "QTo": [0, 100],
+  "JTo": [0, 100], "J9o": [0, 44.5],
+  "T9o": [0, 100], "T8o": [0, 60.3],
+  "98o": [0, 31.1], "97o": [0, 5.3],
+  "87o": [0, 69.4], "76o": [0, 67.2], "65o": [0, 100], "54o": [0, 62],
 });
 
 export const VS_UTG = {
