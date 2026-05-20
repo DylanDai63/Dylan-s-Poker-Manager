@@ -1,12 +1,8 @@
-// Preflop ranges for 9-max NLHE cash, 100bb effective.
+// Preflop ranges for 8-max NLHE cash, 100bb effective.
 //
-// Source / attribution:
-//   Base RFI data adapted from tyloo/poker-range-analyzer (MIT license),
-//   which derives from solver output for 6-max. Early positions are
-//   tightened to fit 9-max position dynamics; late positions (CO/BTN/SB)
-//   are used as-is because they behave similarly between formats.
-//   vs UTG defenses are reasonable approximations consistent with standard
-//   linear/polarized 3-bet patterns at 100bb.
+// UTG: imported from GTO Wizard 8-max NL50 solver (per-combo "Copy Range"
+//      output, parsed by scripts/parse_gto_wizard.py).
+// Other positions: hand-tuned approximations pending GTO Wizard import.
 //
 // Format:
 //   Each chart is a map: hand → [raiseFreq, callFreq]    (each 0..1)
@@ -15,12 +11,12 @@
 
 export const RANKS = ["A","K","Q","J","T","9","8","7","6","5","4","3","2"];
 
-export const POSITIONS_RFI    = ["UTG","UTG1","MP","LJ","HJ","CO","BTN","SB"];
-export const POSITIONS_VS_UTG = ["UTG1","MP","LJ","HJ","CO","BTN","SB","BB"];
+export const POSITIONS_RFI    = ["UTG","UTG1","LJ","HJ","CO","BTN","SB"];
+export const POSITIONS_VS_UTG = ["UTG1","LJ","HJ","CO","BTN","SB","BB"];
 
 export const POSITION_LABEL = {
-  UTG: "UTG", UTG1: "UTG+1", MP: "MP", LJ: "LJ",
-  HJ: "HJ",   CO: "CO",      BTN: "BTN", SB: "SB", BB: "BB",
+  UTG: "UTG", UTG1: "UTG+1", LJ: "LJ", HJ: "HJ",
+  CO: "CO",   BTN: "BTN",    SB: "SB", BB: "BB",
 };
 
 export function handAt(row, col) {
@@ -42,23 +38,20 @@ function build(map) {
 
 // ─────────────────────────── RFI ───────────────────────────
 
-// UTG — 9-max 100bb live cash, exploitative-tight ~10.5%
-// Drop hands that need balance to be playable (44, A3s, KJo).
-// In rake'd live games, pure value > frequency mixing.
+// UTG — imported from GTO Wizard 8-max NL50, 13.8% RFI, 41 hands
 const _UTG = build({
   "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
-  "66": 75, "55": 25,
+  "66": 100, "55": 100, "44": 35.5,
   "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
-  "A9s": 50, "A8s": 25,
-  "A5s": 50, "A4s": 25,
-  "KQs": 100, "KJs": 100, "KTs": 100,
-  "K9s": 25,
-  "QJs": 100, "QTs": 75, "Q9s": 25,
-  "JTs": 100, "J9s": 25,
-  "T9s": 50,
-  "98s": 25,
-  "AKo": 100, "AQo": 100, "AJo": 75, "ATo": 25,
-  "KQo": 75,
+  "A9s": 100, "A8s": 100, "A7s": 100, "A6s": 82.6,
+  "A5s": 100, "A4s": 100, "A3s": 96.5,
+  "KQs": 100, "KJs": 100, "KTs": 100, "K9s": 98.4,
+  "QJs": 100, "QTs": 100,
+  "JTs": 100, "J9s": 80.2,
+  "T9s": 100, "T8s": 11.5,
+  "98s": 11.8, "87s": 25.3, "76s": 24.3, "65s": 58.2, "54s": 31.1,
+  "AKo": 100, "AQo": 100, "AJo": 34.3,
+  "KQo": 69.4,
 });
 
 // UTG+1 — ~13%
@@ -78,25 +71,7 @@ const _UTG1 = build({
   "KQo": 100, "KJo": 25,
 });
 
-// MP — ~15%
-const _MP = build({
-  "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
-  "66": 100, "55": 100, "44": 50, "33": 25,
-  "AKs": 100, "AQs": 100, "AJs": 100, "ATs": 100,
-  "A9s": 100, "A8s": 75, "A7s": 50,
-  "A5s": 100, "A4s": 75, "A3s": 25,
-  "KQs": 100, "KJs": 100, "KTs": 100,
-  "K9s": 75,
-  "QJs": 100, "QTs": 100, "Q9s": 75,
-  "JTs": 100, "J9s": 75,
-  "T9s": 100, "T8s": 50,
-  "98s": 75, "87s": 25,
-  "AKo": 100, "AQo": 100, "AJo": 100, "ATo": 75,
-  "KQo": 100, "KJo": 50,
-  "QJo": 25,
-});
-
-// LJ — ~18%
+// LJ — ~18% (pending GTO Wizard import)
 const _LJ = build({
   "AA": 100, "KK": 100, "QQ": 100, "JJ": 100, "TT": 100, "99": 100, "88": 100, "77": 100,
   "66": 100, "55": 100, "44": 100, "33": 50, "22": 25,
@@ -197,7 +172,7 @@ const _SB = build({
 });
 
 export const RFI = {
-  UTG: _UTG, UTG1: _UTG1, MP: _MP, LJ: _LJ,
+  UTG: _UTG, UTG1: _UTG1, LJ: _LJ,
   HJ: _HJ,   CO: _CO,    BTN: _BTN, SB: _SB,
 };
 
@@ -217,16 +192,6 @@ const _UTG1_VS_UTG = build({
   "KQs": [0, 100], "KJs": [0, 50],
   "QJs": [0, 75], "JTs": [0, 75],
   "AKo": [100, 0], "AQo": [0, 75],
-});
-
-const _MP_VS_UTG = build({
-  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0],
-  "JJ": [50, 50], "TT": [0, 100], "99": [0, 100], "88": [0, 100], "77": [0, 100], "66": [0, 75], "55": [0, 50],
-  "AKs": [100, 0], "AQs": [25, 75], "AJs": [0, 100], "ATs": [0, 100],
-  "KQs": [0, 100], "KJs": [0, 75],
-  "QJs": [0, 100], "QTs": [0, 50],
-  "JTs": [0, 100], "T9s": [0, 50],
-  "AKo": [100, 0], "AQo": [0, 100], "AJo": [0, 50],
 });
 
 const _LJ_VS_UTG = build({
@@ -318,7 +283,6 @@ const _BB_VS_UTG = build({
 
 export const VS_UTG = {
   UTG1: _UTG1_VS_UTG,
-  MP:   _MP_VS_UTG,
   LJ:   _LJ_VS_UTG,
   HJ:   _HJ_VS_UTG,
   CO:   _CO_VS_UTG,
