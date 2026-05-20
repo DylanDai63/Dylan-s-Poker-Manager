@@ -2,16 +2,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_KEY } from "./config.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true },
+  auth: { persistSession: false },
 });
 
 // ───────────────────────── state ─────────────────────────
 
 const LS_KEY = "poker.activeSession";        // {startedAt, plannedMinutes, alarmStopped}
-const LS_EMAIL = "poker.lastEmail";
 const LS_DURATION = "poker.lastDurationMins";
 
-let currentUser = null;
 let countdownRAF = null;
 let alarmInterval = null;
 let audioCtx = null;
@@ -132,39 +130,12 @@ function stopAlarm() {
   if (navigator.vibrate) navigator.vibrate(0);
 }
 
-// ───────────────────────── auth ─────────────────────────
-
-async function checkAuth() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.user) {
-    currentUser = session.user;
-    return true;
-  }
-  return false;
-}
-
-async function login(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  currentUser = data.user;
-  localStorage.setItem(LS_EMAIL, email);
-}
-
-async function logout() {
-  stopAlarm();
-  await supabase.auth.signOut();
-  currentUser = null;
-  // keep LS_EMAIL for convenience
-  clearActive();
-}
-
 // ───────────────────────── sessions CRUD ─────────────────────────
 
 async function saveSessionToCloud(row) {
-  if (!currentUser) throw new Error("not logged in");
   const { data, error } = await supabase
     .from("sessions")
-    .insert([{ ...row, user_id: currentUser.id }])
+    .insert([row])
     .select()
     .single();
   if (error) throw error;
@@ -263,10 +234,6 @@ function setupHome() {
     enterRunning();
   });
 
-  $("#logout-btn").addEventListener("click", async () => {
-    await logout();
-    showView("view-auth");
-  });
 }
 
 function selectDurationChip(mins) {
@@ -472,37 +439,16 @@ function setupRecord() {
   });
 }
 
-// ───────────────────────── auth view ─────────────────────────
-
-function setupAuth() {
-  const lastEmail = localStorage.getItem(LS_EMAIL);
-  if (lastEmail) $("#login-email").value = lastEmail;
-
-  $("#login-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const email = $("#login-email").value.trim();
-    const password = $("#login-password").value;
-    const btn = $("#login-btn");
-    btn.disabled = true;
-    btn.textContent = "登录中...";
-    try {
-      await login(email, password);
-      $("#login-password").value = "";
-      await routeAfterAuth();
-    } catch (err) {
-      console.error(err);
-      toast("登录失败：" + (err.message || err), "err");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "登录";
-    }
-  });
-}
-
 // ───────────────────────── routing ─────────────────────────
 
-async function routeAfterAuth() {
-  await refreshRecent();
+async function boot() {
+  setupHome();
+  setupRunning();
+  setupAlarm();
+  setupRecord();
+
+  refreshRecent();  // fire and forget; home view shows immediately
+
   const s = loadActive();
   if (!s) {
     showView("view-home");
@@ -516,21 +462,6 @@ async function routeAfterAuth() {
   }
 }
 
-async function boot() {
-  setupAuth();
-  setupHome();
-  setupRunning();
-  setupAlarm();
-  setupRecord();
-
-  const authed = await checkAuth();
-  if (!authed) {
-    showView("view-auth");
-    return;
-  }
-  await routeAfterAuth();
-}
-
 // Register service worker (we already had one)
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -542,10 +473,9 @@ if ("serviceWorker" in navigator) {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   const s = loadActive();
-  if (!s || !currentUser) return;
+  if (!s) return;
   const currentView = $$(".view").find((v) => !v.classList.contains("hidden"));
   if (!currentView) return;
-  // if we were running and now we're past time → trigger alarm
   if (currentView.id === "view-running") {
     const remaining = endAt(s) - Date.now();
     if (remaining <= 0 && !s.alarmStopped) enterAlarm();

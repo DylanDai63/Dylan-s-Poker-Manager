@@ -85,30 +85,26 @@
 - 单用户为主（先做自己用）
 
 ### 认证策略
-- 用 Supabase 自带的 **邮箱/密码** 登录
-- 每台设备首次访问网页时登录一次（浏览器会记住 session）
-- 不开放注册，只有 Dylan 一个账号
+- **不做登录** — 点开即用
+- 隐私模型："URL 没人会主动搜" + "数据不敏感"
+- 代价：拿到 URL 的人能看 / 写数据；想锁起来再加登录
 
 ### 数据模型
 ```sql
 create table sessions (
   id                        uuid primary key default gen_random_uuid(),
-  user_id                   uuid not null references auth.users(id),
+  user_id                   uuid references auth.users(id),  -- nullable, 暂不用
   started_at                timestamptz not null,
   ended_at                  timestamptz not null,
-  planned_duration_minutes  int not null,        -- start 时设定的目标时长
+  planned_duration_minutes  int not null,
   buy_in                    numeric(10,2) not null,  -- USD
   cash_out                  numeric(10,2) not null,  -- USD
   notes                     text,
   created_at                timestamptz default now()
 );
 
--- 行级安全：只能看 / 改自己的 session
-alter table sessions enable row level security;
-create policy "own read"   on sessions for select using (auth.uid() = user_id);
-create policy "own insert" on sessions for insert with check (auth.uid() = user_id);
-create policy "own update" on sessions for update using (auth.uid() = user_id);
-create policy "own delete" on sessions for delete using (auth.uid() = user_id);
+-- RLS 关闭，匿名读写
+alter table sessions disable row level security;
 ```
 
 ### 当前 session 状态怎么存
@@ -139,7 +135,8 @@ create policy "own delete" on sessions for delete using (auth.uid() = user_id);
 |---|---|---|
 | 2026-05-20 | PWA 部署到 GitHub Pages | 仓库 public 即可免费，Pro 太贵 |
 | 2026-05-20 | iOS 主要靠 Safari "添加到主屏幕" | Chrome 不支持完整 PWA |
-| 2026-05-20 | 数据存 Supabase（免费档） | 邮箱密码登录，单账号 |
+| 2026-05-20 | 数据存 Supabase（免费档） | 初版含登录 |
+| 2026-05-20 | 去掉登录，点开即用 | RLS 关闭；隐私靠 URL 不公开 |
 | 2026-05-20 | 货币 USD | 显示 $ 符号 |
 | 2026-05-20 | 倒计时默认 3h，Start 前可改 | 提供 2h/3h/4h/自定义 |
 | 2026-05-20 | 超时三重提醒：声 + 振动 + 红色横幅 | 横幅文字"不要做没有纪律的臭鱼！！！" |
