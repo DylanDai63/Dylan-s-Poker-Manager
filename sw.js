@@ -1,7 +1,7 @@
 // Network-first for everything: always try to fetch fresh, fall back to
 // cache only when offline. This keeps app updates from getting stuck behind
 // stale caches during active development. App is small, perf hit is fine.
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 const CACHE_NAME = `poker-helper-${CACHE_VERSION}`;
 
 const PRECACHE = [
@@ -11,6 +11,7 @@ const PRECACHE = [
   "./css/styles.css",
   "./js/app.js",
   "./js/config.js",
+  "./js/ranges.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",

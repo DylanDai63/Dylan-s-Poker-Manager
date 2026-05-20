@@ -1,5 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_KEY } from "./config.js";
+import {
+  POSITIONS_RFI, POSITIONS_VS_UTG, POSITION_LABEL,
+  cellAction, handAt,
+} from "./ranges.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false },
@@ -13,6 +17,11 @@ const LS_DURATION = "poker.lastDurationMins";
 let countdownRAF = null;
 let alarmInterval = null;
 let audioCtx = null;
+let recentCache = [];                         // last fetched sessions list
+let editingId = null;                          // session being edited
+let prevView = "view-home";                    // where to return after closing ranges
+let rangeScenario = "RFI";
+let rangePosition = "BTN";
 
 // ───────────────────────── DOM helpers ─────────────────────────
 
@@ -86,6 +95,10 @@ function formatDate(d) {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+function toDatetimeLocal(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 // ───────────────────────── audio (Web Audio API) ─────────────────────────
 
 function ensureAudio() {
@@ -150,6 +163,22 @@ async function saveSessionToCloud(row) {
   return data;
 }
 
+async function updateSessionInCloud(id, patch) {
+  const { data, error } = await supabase
+    .from("sessions")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function deleteSessionFromCloud(id) {
+  const { error } = await supabase.from("sessions").delete().eq("id", id);
+  if (error) throw error;
+}
+
 async function listRecent(limit = 8) {
   const { data, error } = await supabase
     .from("sessions")
@@ -175,7 +204,7 @@ function renderRecent(list) {
     const sign = pnl > 0 ? "+" : pnl < 0 ? "−" : "";
     const cls = pnl > 0 ? "pos" : pnl < 0 ? "neg" : "zero";
     return `
-      <div class="recent-row">
+      <div class="recent-row" data-id="${s.id}">
         <div>${formatDate(started)} · ${formatHM(started)}–${formatHM(ended)}</div>
         <div class="muted">${formatDuration(ended - started)}</div>
         <div class="pnl ${cls}">${sign}$${Math.abs(pnl).toFixed(2)}</div>
@@ -186,12 +215,22 @@ function renderRecent(list) {
 
 async function refreshRecent() {
   try {
-    const list = await listRecent();
-    renderRecent(list);
+    recentCache = await listRecent();
+    renderRecent(recentCache);
   } catch (err) {
     console.error(err);
     $("#recent-list").innerHTML = `<div class="recent-empty">加载失败：${err.message || err}</div>`;
   }
+}
+
+function setupRecentClicks() {
+  $("#recent-list").addEventListener("click", (e) => {
+    const row = e.target.closest(".recent-row");
+    if (!row) return;
+    const id = row.dataset.id;
+    const s = recentCache.find((x) => x.id === id);
+    if (s) enterEdit(s);
+  });
 }
 
 // ───────────────────────── home view ─────────────────────────
@@ -333,6 +372,10 @@ function setupRunning() {
     stopCountdownLoop();
     enterRecord();
   });
+  $("#ranges-btn").addEventListener("click", () => {
+    prevView = "view-running";
+    enterRanges();
+  });
 }
 
 // ───────────────────────── alarm view ─────────────────────────
@@ -447,6 +490,155 @@ function setupRecord() {
   });
 }
 
+// ───────────────────────── edit view ─────────────────────────
+
+function enterEdit(session) {
+  editingId = session.id;
+  const started = new Date(session.started_at);
+  const ended = new Date(session.ended_at);
+  $("#edit-summary").textContent =
+    `${formatDate(started)} · ${formatHM(started)} → ${formatHM(ended)}`;
+  $("#edit-started-at").value = toDatetimeLocal(started);
+  $("#edit-ended-at").value = toDatetimeLocal(ended);
+  $("#edit-planned").value = session.planned_duration_minutes;
+  $("#edit-buy-in").value = session.buy_in;
+  $("#edit-cash-out").value = session.cash_out;
+  $("#edit-notes").value = session.notes || "";
+  showView("view-edit");
+}
+
+function setupEdit() {
+  $("#edit-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!editingId) return;
+    const startedAt = new Date($("#edit-started-at").value);
+    const endedAt = new Date($("#edit-ended-at").value);
+    if (isNaN(startedAt) || isNaN(endedAt)) {
+      toast("时间填写不正确", "err");
+      return;
+    }
+    if (endedAt <= startedAt) {
+      toast("结束时间要晚于开始时间", "err");
+      return;
+    }
+    const btn = $("#edit-save-btn");
+    btn.disabled = true;
+    btn.textContent = "保存中...";
+    try {
+      await updateSessionInCloud(editingId, {
+        started_at: startedAt.toISOString(),
+        ended_at: endedAt.toISOString(),
+        planned_duration_minutes: parseInt($("#edit-planned").value, 10),
+        buy_in: parseFloat($("#edit-buy-in").value),
+        cash_out: parseFloat($("#edit-cash-out").value),
+        notes: $("#edit-notes").value.trim() || null,
+      });
+      toast("已保存", "ok");
+      editingId = null;
+      await refreshRecent();
+      showView("view-home");
+    } catch (err) {
+      console.error(err);
+      toast("保存失败：" + (err.message || err), "err");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "保存";
+    }
+  });
+
+  $("#edit-delete-btn").addEventListener("click", async () => {
+    if (!editingId) return;
+    if (!confirm("确定删除这条 session？无法恢复。")) return;
+    const btn = $("#edit-delete-btn");
+    btn.disabled = true;
+    btn.textContent = "删除中...";
+    try {
+      await deleteSessionFromCloud(editingId);
+      toast("已删除", "ok");
+      editingId = null;
+      await refreshRecent();
+      showView("view-home");
+    } catch (err) {
+      console.error(err);
+      toast("删除失败：" + (err.message || err), "err");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "删除这条";
+    }
+  });
+
+  $("#edit-cancel-btn").addEventListener("click", () => {
+    editingId = null;
+    showView("view-home");
+  });
+}
+
+// ───────────────────────── ranges view ─────────────────────────
+
+function enterRanges() {
+  showView("view-ranges");
+  renderScenarioChips();
+  renderPositionChips();
+  renderRangeGrid();
+}
+
+function renderScenarioChips() {
+  $$("#scenario-chips .chip").forEach((c) => {
+    c.classList.toggle("selected", c.dataset.scenario === rangeScenario);
+  });
+}
+
+function renderPositionChips() {
+  const list = rangeScenario === "RFI" ? POSITIONS_RFI : POSITIONS_VS_UTG;
+  if (!list.includes(rangePosition)) rangePosition = list[list.length - 1];  // default to most useful (BTN/BB)
+  const html = list.map(
+    (p) => `<button type="button" class="chip ${p === rangePosition ? "selected" : ""}" data-pos="${p}">${POSITION_LABEL[p]}</button>`
+  ).join("");
+  $("#position-chips").innerHTML = html;
+}
+
+function renderRangeGrid() {
+  const grid = $("#range-grid");
+  const cells = [];
+  for (let r = 0; r < 13; r++) {
+    for (let c = 0; c < 13; c++) {
+      const hand = handAt(r, c);
+      const { r: pr, c: pc } = cellAction(r, c, rangeScenario, rangePosition);
+      const pf = Math.max(0, 1 - pr - pc);
+      const bars = [
+        pr > 0 ? `<div class="bar-r" style="flex-grow:${pr}"></div>` : "",
+        pc > 0 ? `<div class="bar-c" style="flex-grow:${pc}"></div>` : "",
+        pf > 0 ? `<div class="bar-f" style="flex-grow:${pf}"></div>` : "",
+      ].join("");
+      cells.push(`<div class="range-cell"><div class="bars">${bars}</div><span class="label">${hand}</span></div>`);
+    }
+  }
+  grid.innerHTML = cells.join("");
+}
+
+function setupRanges() {
+  $("#scenario-chips").addEventListener("click", (e) => {
+    const btn = e.target.closest(".chip");
+    if (!btn) return;
+    rangeScenario = btn.dataset.scenario;
+    renderScenarioChips();
+    renderPositionChips();
+    renderRangeGrid();
+  });
+
+  $("#position-chips").addEventListener("click", (e) => {
+    const btn = e.target.closest(".chip");
+    if (!btn) return;
+    rangePosition = btn.dataset.pos;
+    renderPositionChips();
+    renderRangeGrid();
+  });
+
+  $("#ranges-close").addEventListener("click", () => {
+    showView(prevView || "view-home");
+  });
+}
+
 // ───────────────────────── routing ─────────────────────────
 
 async function boot() {
@@ -454,6 +646,9 @@ async function boot() {
   setupRunning();
   setupAlarm();
   setupRecord();
+  setupEdit();
+  setupRanges();
+  setupRecentClicks();
 
   refreshRecent();  // fire and forget; home view shows immediately
 

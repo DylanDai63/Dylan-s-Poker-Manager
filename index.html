@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=4" />
+  <link rel="stylesheet" href="css/styles.css?v=5" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -99,6 +99,7 @@
     </div>
 
     <button id="end-btn" class="danger big">⏹  End Session</button>
+    <button id="ranges-btn" class="secondary big">📊  翻前范围</button>
   </section>
 
   <!-- ALARM -->
@@ -137,6 +138,64 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=4"></script>
+  <!-- RANGES -->
+  <section id="view-ranges" class="view view-ranges hidden">
+    <div class="ranges-header">
+      <button type="button" id="ranges-close" class="text-button">← 返回</button>
+      <div class="ranges-title">翻前范围</div>
+      <div style="width:60px"></div>
+    </div>
+
+    <div class="chips" id="scenario-chips">
+      <button type="button" class="chip selected" data-scenario="RFI">开池 RFI</button>
+      <button type="button" class="chip" data-scenario="VS_UTG">vs UTG 开池</button>
+    </div>
+
+    <div class="chips" id="position-chips">
+      <!-- filled by JS -->
+    </div>
+
+    <div class="range-grid" id="range-grid"><!-- filled by JS --></div>
+
+    <div class="range-legend">
+      <span><i class="dot dot-r"></i>加注</span>
+      <span><i class="dot dot-c"></i>跟注</span>
+      <span><i class="dot dot-f"></i>弃牌</span>
+    </div>
+  </section>
+
+  <!-- EDIT EXISTING -->
+  <section id="view-edit" class="view hidden">
+    <header class="hero">
+      <h1>编辑 Session</h1>
+      <p class="subtitle" id="edit-summary">--</p>
+    </header>
+
+    <form id="edit-form" class="form">
+      <label>开始时间
+        <input type="datetime-local" id="edit-started-at" required />
+      </label>
+      <label>结束时间
+        <input type="datetime-local" id="edit-ended-at" required />
+      </label>
+      <label>目标时长（分钟）
+        <input type="number" id="edit-planned" min="1" max="720" inputmode="numeric" required />
+      </label>
+      <label>Buy-in (USD)
+        <input type="number" id="edit-buy-in" step="0.01" inputmode="decimal" required />
+      </label>
+      <label>Cash-out (USD)
+        <input type="number" id="edit-cash-out" step="0.01" inputmode="decimal" required />
+      </label>
+      <label>备注
+        <textarea id="edit-notes" rows="3"></textarea>
+      </label>
+      <button type="submit" id="edit-save-btn" class="primary">保存</button>
+      <button type="button" id="edit-delete-btn" class="danger">删除这条</button>
+      <button type="button" id="edit-cancel-btn" class="text-button">取消</button>
+    </form>
+  </section>
+
+  <script type="module" src="js/app.js?v=5"></script>
 </body>
 </html>
