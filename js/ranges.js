@@ -301,15 +301,25 @@ const _BTN_VS_UTG = build({
   "JTo": [0, 12.1],
 });
 
-// SB OOP vs UTG — pure 3-bet or fold (no flat from SB OOP, multiway is
-// a disaster here). Value-heavy; small Ax blocker mixes for balance.
+// SB vs UTG — GTO Wizard 8-max NL50, 3-bet 4.0% + call 11.0% = 14.9%, 44 hands
+// Solver does flat from SB (contrary to common intuition) — only BB left to act
+// behind, BB checks/raises so multiway risk is small. Value-heavy 3-bet,
+// wide flatting of pairs and suited broadways.
 const _SB_VS_UTG = build({
-  "AA": [100, 0], "KK": [100, 0], "QQ": [100, 0], "JJ": [100, 0],
-  "TT": [50, 0], "99": [25, 0],
-  "AKs": [100, 0], "AQs": [75, 0], "AJs": [25, 0],
-  "A5s": [25, 0], "A4s": [25, 0],
-  "KQs": [25, 0],
-  "AKo": [100, 0], "AQo": [25, 0],
+  "AA": [100, 0], "KK": [100, 0], "QQ": [43.8, 56.2], "JJ": [4, 96],
+  "TT": [5.1, 94.9], "99": [0.1, 100], "88": [7.6, 92.4], "77": [10.3, 89.7],
+  "66": [5.9, 94.1], "55": [5.9, 94.1], "44": [2.2, 97.8], "33": [0, 55.1], "22": [0, 73.2],
+  "AKs": [100, 0], "AQs": [45.7, 54.3], "AJs": [22.7, 77.3], "ATs": [12.3, 87.7],
+  "A9s": [0, 100], "A8s": [11.1, 88.9], "A7s": [8.3, 91.6], "A6s": [5.1, 44],
+  "A5s": [40.2, 59.8], "A4s": [60.9, 39.1], "A3s": [38.5, 61.5], "A2s": [2, 3.6],
+  "KQs": [53.5, 46.5], "KJs": [28, 72], "KTs": [36.4, 63.6],
+  "K9s": [16, 73], "K8s": [0.1, 1.4],
+  "QJs": [34.8, 65.1], "QTs": [11.5, 88.5],
+  "JTs": [29.6, 70.4], "J9s": [4.3, 95.7],
+  "T9s": [37.9, 62.1], "T8s": [10.9, 69.6],
+  "98s": [0, 28.8], "87s": [35.5, 44.2], "76s": [33.4, 56.1], "65s": [34, 65.9], "54s": [25.4, 73.6],
+  "AKo": [49.3, 50.7], "AQo": [0.2, 100],
+  "KQo": [0, 29.4],
 });
 
 // BB w/ blind discount vs UTG — wide flat, polarized 3-bets only with
