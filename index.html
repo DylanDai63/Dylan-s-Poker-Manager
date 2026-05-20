@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Poker Helper · Hello</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f5438" />
+  <meta name="description" content="Dylan 的扑克助手 PWA — Hello World" />
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Poker Helper" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+
+  <style>
+    :root {
+      --bg: #0f5438;
+      --bg-2: #0a3a26;
+      --fg: #f5f0e1;
+      --accent: #ffd166;
+      --muted: #b8c8be;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      background: radial-gradient(ellipse at top, var(--bg) 0%, var(--bg-2) 70%, #061d13 100%);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      padding:
+        max(24px, env(safe-area-inset-top))
+        max(20px, env(safe-area-inset-right))
+        max(24px, env(safe-area-inset-bottom))
+        max(20px, env(safe-area-inset-left));
+    }
+    header {
+      text-align: center;
+      margin-top: 8vh;
+    }
+    .spade {
+      font-size: 64px;
+      line-height: 1;
+      color: var(--accent);
+      filter: drop-shadow(0 4px 12px rgba(0,0,0,0.4));
+    }
+    h1 {
+      margin: 16px 0 8px;
+      font-size: 32px;
+      letter-spacing: 0.5px;
+    }
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 16px;
+      max-width: 480px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 32px 0;
+    }
+    .card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 18px;
+      padding: 18px 20px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    .card h2 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .card .value {
+      font-size: 20px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+    }
+    .row .card { flex: 1; }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge.ok { background: rgba(46, 204, 113, 0.2); color: #6ee7a8; }
+    .badge.off { background: rgba(231, 76, 60, 0.25); color: #ffb3a8; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      padding-top: 16px;
+    }
+    footer code {
+      color: var(--fg);
+      background: rgba(255,255,255,0.08);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="spade">♠</div>
+    <h1>Hello, Poker Helper</h1>
+    <p class="subtitle">PWA 已加载 · 可加到主屏幕</p>
+  </header>
+
+  <main>
+    <div class="card">
+      <h2>状态</h2>
+      <div class="value">
+        <span id="net-badge" class="badge ok">online</span>
+        <span id="sw-badge" class="badge off" style="margin-left:6px">sw: pending</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h2>当前时间</h2>
+        <div class="value" id="clock">--:--:--</div>
+      </div>
+      <div class="card">
+        <h2>显示</h2>
+        <div class="value" id="viewport">--</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>下一步</h2>
+      <div class="value" style="font-size:15px; font-weight:400; line-height:1.5;">
+        在 iPhone Safari 打开此页，点 <b>分享 → 添加到主屏幕</b>，
+        就能像 App 一样使用。
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    build · <span id="build">dev</span>
+  </footer>
+
+  <script>
+    // clock
+    const clock = document.getElementById("clock");
+    function tick() {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      clock.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    // viewport size
+    const vp = document.getElementById("viewport");
+    function reportVp() {
+      vp.textContent = `${window.innerWidth} × ${window.innerHeight}`;
+    }
+    reportVp();
+    window.addEventListener("resize", reportVp);
+
+    // network status
+    const netBadge = document.getElementById("net-badge");
+    function reportNet() {
+      if (navigator.onLine) {
+        netBadge.textContent = "online";
+        netBadge.classList.add("ok");
+        netBadge.classList.remove("off");
+      } else {
+        netBadge.textContent = "offline";
+        netBadge.classList.add("off");
+        netBadge.classList.remove("ok");
+      }
+    }
+    reportNet();
+    window.addEventListener("online", reportNet);
+    window.addEventListener("offline", reportNet);
+
+    // service worker
+    const swBadge = document.getElementById("sw-badge");
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", async () => {
+        try {
+          const reg = await navigator.serviceWorker.register("sw.js");
+          swBadge.textContent = "sw: ready";
+          swBadge.classList.remove("off");
+          swBadge.classList.add("ok");
+          console.log("[sw] registered", reg.scope);
+        } catch (err) {
+          swBadge.textContent = "sw: failed";
+          console.error("[sw] register failed", err);
+        }
+      });
+    } else {
+      swBadge.textContent = "sw: unsupported";
+    }
+
+    // build tag (commit short-sha placeholder; updated by CI later if desired)
+    document.getElementById("build").textContent =
+      new Date().toISOString().slice(0, 10);
+  </script>
+</body>
+</html>
