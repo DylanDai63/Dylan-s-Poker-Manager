@@ -1,11 +1,14 @@
 // Bump CACHE_VERSION whenever shipped assets change so old caches get purged.
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `poker-helper-${CACHE_VERSION}`;
 
 const PRECACHE = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
+  "./css/styles.css",
+  "./js/app.js",
+  "./js/config.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
