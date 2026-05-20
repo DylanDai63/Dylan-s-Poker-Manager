@@ -35,6 +35,7 @@
 [ 主页 ]
    ♠ Poker Helper
    ─────────────
+   时长: [3h ▼]  ← 默认 3h，可改 (2h/3h/4h/自定义)
    ▢ Start Session    (未在牌局时显示)
 
    倒计时:  02:47:13   (牌局中显示)
@@ -47,6 +48,20 @@
      5/17  -$80   2h05m
      ...
 ```
+
+### 时间到了的提醒
+**三重轰炸**：
+1. 响铃（一段循环铃声直到点 Stop）
+2. 手机震动（`navigator.vibrate`，iOS PWA 可能没效，但加上保险）
+3. 全屏红色横幅闪烁，大字显示：
+   > **🚨 不要做没有纪律的臭鱼！！！**
+
+横幅上有两个按钮：
+- `Stop` — 停止响铃震动，但 session 继续（用于"我看到了，先静音"）
+- `Restart` — 重置倒计时，继续打（同时停止响铃）
+- `End Session` — 结束牌局，进入录入页
+
+页面再次打开（哪怕之前在后台被 iOS 杀掉）若发现已经超时，立刻补上视觉提醒（响铃可能要等用户交互才能播）。
 
 ```
 [ 录入页 (End 后弹出) ]
@@ -62,36 +77,48 @@
 
 ---
 
-## 2. 数据存储 (待定 → Supabase 倾向)
+## 2. 数据存储 → **Supabase** (已定)
 
 ### 需求
 - 跨设备同步（手机 / 电脑访问同一个 URL 都能看到自己的数据）
 - 数据量小（每条 session 几十字节，一年也就几十 KB）
 - 单用户为主（先做自己用）
 
-### 候选
-- **Supabase 免费档** ← 倾向这个
-- Firebase Firestore（备选）
-- localStorage（仅本机，不满足同步需求）
-- GitHub API（写权限暴露问题，不可行）
+### 认证策略
+- 用 Supabase 自带的 **邮箱/密码** 登录
+- 每台设备首次访问网页时登录一次（浏览器会记住 session）
+- 不开放注册，只有 Dylan 一个账号
 
-### 数据模型 (草案)
+### 数据模型
 ```sql
--- sessions 表
-id           uuid (主键)
-user_id      uuid (Supabase 自带 auth.users 关联)
-started_at   timestamptz
-ended_at     timestamptz
-buy_in       numeric        -- 美元 / 人民币 / 筹码？待定
-cash_out     numeric
-notes        text
-created_at   timestamptz default now()
+create table sessions (
+  id                        uuid primary key default gen_random_uuid(),
+  user_id                   uuid not null references auth.users(id),
+  started_at                timestamptz not null,
+  ended_at                  timestamptz not null,
+  planned_duration_minutes  int not null,        -- start 时设定的目标时长
+  buy_in                    numeric(10,2) not null,  -- USD
+  cash_out                  numeric(10,2) not null,  -- USD
+  notes                     text,
+  created_at                timestamptz default now()
+);
+
+-- 行级安全：只能看 / 改自己的 session
+alter table sessions enable row level security;
+create policy "own read"   on sessions for select using (auth.uid() = user_id);
+create policy "own insert" on sessions for insert with check (auth.uid() = user_id);
+create policy "own update" on sessions for update using (auth.uid() = user_id);
+create policy "own delete" on sessions for delete using (auth.uid() = user_id);
 ```
 
+### 当前 session 状态怎么存
+- "正在倒计时"这个状态存 **localStorage**（开始时间戳、目标时长）
+- 这样断网 / 关掉浏览器 / 切后台都没事，重新打开还能继续
+- 只有点 End 提交录入页后，才把整条 session 写进 Supabase
+
 ### 待定
-- 货币单位（USD / RMB / chips？）
-- 是否记录场地、牌局类型（NLH/PLO/...）、盲注大小
-- 多次买入怎么处理（先合并成一个 buy-in 总额，够用就不细化）
+- 是否记录场地、牌局类型（NLH/PLO/...）、盲注大小 → 先不做，P1 再加字段
+- 多次买入怎么处理 → 先合并成一个 buy-in 总额
 
 ---
 
@@ -112,14 +139,19 @@ created_at   timestamptz default now()
 |---|---|---|
 | 2026-05-20 | PWA 部署到 GitHub Pages | 仓库 public 即可免费，Pro 太贵 |
 | 2026-05-20 | iOS 主要靠 Safari "添加到主屏幕" | Chrome 不支持完整 PWA |
-| TBD | 数据存储方案 | Supabase / Firebase / 其他 |
+| 2026-05-20 | 数据存 Supabase（免费档） | 邮箱密码登录，单账号 |
+| 2026-05-20 | 货币 USD | 显示 $ 符号 |
+| 2026-05-20 | 倒计时默认 3h，Start 前可改 | 提供 2h/3h/4h/自定义 |
+| 2026-05-20 | 超时三重提醒：声 + 振动 + 红色横幅 | 横幅文字"不要做没有纪律的臭鱼！！！" |
 
 ---
 
-## 5. 开放问题（等 Dylan 决定）
+## 5. 开放问题
 
-- [ ] 数据存储选 Supabase 还是其他？
-- [ ] 货币单位是什么？
-- [ ] 倒计时默认 3 小时，但是否允许在主页设置自定义时长？
-- [ ] 响铃用什么声音？要不要震动？
-- [ ] 提前结束 section 时，弹出的录入页 Cash-out 是否预填 0 ？
+- [x] 数据存储 → Supabase
+- [x] 货币 → USD
+- [x] 自定义时长 → 默认 3h，可改
+- [x] 提醒 → 声 + 振动 + 红色横幅 + "臭鱼"标语
+- [ ] 响铃用什么具体声音？(先用一段合成 beep，以后可换 mp3)
+- [ ] 提前 End 时，Cash-out 是否预填 0 ？(暂定不预填，留空让用户填)
+- [ ] Restart 按钮是"再加 3 小时"还是"重置为当前选的时长"？(暂定重置为当前选的时长)
