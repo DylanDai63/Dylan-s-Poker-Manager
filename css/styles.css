@@ -227,6 +227,22 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 18px 0;
 }
 
+/* persistent error banner (boot / unhandled errors) */
+.error-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: var(--danger-bg);
+  color: white;
+  padding: calc(env(safe-area-inset-top) + 8px) 14px 8px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  z-index: 10000;
+  border-bottom: 2px solid var(--danger);
+  word-break: break-word;
+}
+
 /* toast */
 .toast {
   position: fixed;

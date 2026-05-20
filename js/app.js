@@ -27,10 +27,18 @@ function showView(id) {
 let toastTimer = null;
 function toast(msg, kind = "") {
   const el = $("#toast");
+  if (!el) return;
   el.textContent = msg;
   el.className = "toast " + kind;
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), 3000);
+}
+
+function showFatalError(msg) {
+  const el = $("#error-banner");
+  if (!el) return;
+  el.classList.remove("hidden");
+  el.textContent = "⚠ " + msg;
 }
 
 // ───────────────────────── timer state (localStorage) ─────────────────────────
@@ -484,5 +492,5 @@ document.addEventListener("visibilitychange", () => {
 
 boot().catch((err) => {
   console.error("boot failed", err);
-  toast("启动失败：" + (err.message || err), "err");
+  showFatalError("启动失败：" + (err.message || err));
 });

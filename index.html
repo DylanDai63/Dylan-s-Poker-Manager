@@ -18,9 +18,39 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css?v=4" />
+
+  <!-- mobile debug console, only when ?debug=1 -->
+  <script>
+    if (new URLSearchParams(location.search).get("debug") === "1") {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/eruda";
+      s.onload = () => window.eruda.init();
+      document.head.appendChild(s);
+    }
+    // catch errors that fire before app.js is loaded
+    window.__bootErrors = [];
+    window.addEventListener("error", (e) => {
+      window.__bootErrors.push(e.message + " @ " + (e.filename || "?") + ":" + (e.lineno || "?"));
+      const el = document.getElementById("error-banner");
+      if (el) {
+        el.classList.remove("hidden");
+        el.textContent = "⚠ " + window.__bootErrors.join("  |  ");
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      const msg = (e.reason && (e.reason.message || e.reason.toString())) || "rejection";
+      window.__bootErrors.push(msg);
+      const el = document.getElementById("error-banner");
+      if (el) {
+        el.classList.remove("hidden");
+        el.textContent = "⚠ " + window.__bootErrors.join("  |  ");
+      }
+    });
+  </script>
 </head>
 <body>
+  <div id="error-banner" class="error-banner hidden"></div>
   <div id="toast" class="toast hidden"></div>
 
   <!-- HOME -->
@@ -107,6 +137,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=4"></script>
 </body>
 </html>

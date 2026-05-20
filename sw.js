@@ -1,5 +1,7 @@
-// Bump CACHE_VERSION whenever shipped assets change so old caches get purged.
-const CACHE_VERSION = "v3";
+// Network-first for everything: always try to fetch fresh, fall back to
+// cache only when offline. This keeps app updates from getting stuck behind
+// stale caches during active development. App is small, perf hit is fine.
+const CACHE_VERSION = "v4";
 const CACHE_NAME = `poker-helper-${CACHE_VERSION}`;
 
 const PRECACHE = [
@@ -28,7 +30,6 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Network-first for navigations (so updates show up fast), cache-first for static.
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -36,29 +37,15 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  if (req.mode === "navigate") {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(req, copy));
-          return res;
-        })
-        .catch(() => caches.match("./index.html"))
-    );
-    return;
-  }
-
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((res) => {
-        if (res.ok) {
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok) {
           const copy = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(req, copy));
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
         }
         return res;
-      });
-    })
+      })
+      .catch(() => caches.match(req).then((cached) => cached || caches.match("./index.html")))
   );
 });
