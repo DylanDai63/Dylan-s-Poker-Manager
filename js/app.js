@@ -90,6 +90,76 @@ function clearActive() {
   localStorage.removeItem(LS_KEY);
 }
 
+// ───────────────────────── motivational content ─────────────────────────
+
+const LIMP_WARNINGS = [
+  "你不是来交学费的。limp 一次少一点本金。",
+  "想清楚你的目标 —— 是娱乐还是赚钱？",
+  "鱼塘的鱼最爱 limp。你确定你不是？",
+  "每个 limp 都在喂养未来的盈利者。不是你。",
+  "没纪律的好手 = 永远的输家。",
+  "你的对手感谢你今天的捐款。",
+  "raise 或 fold。三个字母都比 limp 强。",
+  "limp 是弱者的语言。停。",
+  "你以为是省钱，其实是慢性失血。",
+  "聪明的鱼会 raise。傻的鱼会 limp。",
+  "FOLD 是力量。LIMP 是软弱。RAISE 是答案。",
+  "你的钱包不会撒谎。",
+  "继续这样，打到 70 岁你也还是输家。",
+  "决策好坏看 EV。你刚做了一个差决策。",
+  "如果没理由 limp，那就是没纪律。",
+  "Limp 一次 ≈ 输 0.3 BB 的期望。算算今晚捐了多少。",
+  "你的 limp 让 BB 变得便宜。BB 谢谢你。",
+  "对自己狠一点。不该打的牌就别打。",
+  "扑克奖励耐心，惩罚冲动。你刚被惩罚了。",
+  "纪律 = 钱。没纪律 = 没钱。",
+];
+
+const DAILY_MOTTOS = [
+  "Tight is right.",
+  "Position is power.",
+  "打你的 A 游戏，不是 B 游戏。",
+  "决策好坏看 EV，不看结果。",
+  "扑克是用残缺信息做决策的艺术。",
+  "每一手都是独立的决策。",
+  "懂得弃牌的人才能久赢。",
+  "在牌桌上，最大的对手是你自己。",
+  "无聊不是 fold 的理由。",
+  "短期看运气，长期看技能。坚持长期。",
+  "Don't chase. Don't tilt. Don't limp.",
+  "如果你是桌上第 4 好的玩家，你就是输家。",
+  "懂得离开桌子是赢家的特征。",
+  "扑克的本质：把钱从坏玩家搬到好玩家。",
+  "自律 > 智商 > 运气。",
+  "今天打不好就关电脑。明天再来。",
+  "扑克不是为了让你 happy，是为了让你赚钱。",
+  "Live $1/$2：value bet 多一点，bluff 少一点。",
+  "读对手比读牌重要。",
+  "打人不打牌。",
+  "fold 是最常对的动作。",
+  "你的范围在打牌，不是你的具体两张牌。",
+  "翻前打错，翻后再聪明也救不回来。",
+  "想 3-bet 之前问：value 还是 bluff？两个都不是就 fold。",
+  "BB 位置最差。别打太宽。",
+  "BTN 位置最好。别打太紧。",
+  "set-mining 需要 implied odds。深筹码才划算。",
+  "每个 limp 都是给鱼的礼物。",
+  "FOLD. RAISE. 这两个。从不 LIMP。",
+  "扑克 = 100% 技能 + 100% 运气 = 200%。",
+];
+
+function getDailyMotto() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now - start) / 86400000);
+  return DAILY_MOTTOS[dayOfYear % DAILY_MOTTOS.length];
+}
+
+function pickLimpWarning(count) {
+  const idx = Math.max(0, Math.floor(count / 3) - 1) % LIMP_WARNINGS.length;
+  return LIMP_WARNINGS[idx];
+}
+
 // ───────────────────────── formatting ─────────────────────────
 
 function pad(n) { return String(n).padStart(2, "0"); }
@@ -341,7 +411,63 @@ function enterRunning() {
   }
   showView("view-running");
   $("#running-meta").textContent = `开始于 ${formatHM(new Date(s.startedAt))} · 目标 ${formatDuration(s.plannedMinutes * 60000)}`;
+  updateLimpDisplay();
   startCountdownLoop();
+}
+
+function updateLimpDisplay() {
+  const el = $("#limp-count");
+  if (!el) return;
+  const s = loadActive();
+  el.textContent = String(s ? (s.limpCount || 0) : 0);
+}
+
+function showLimpWarning(count) {
+  $("#warning-count").textContent = `已经 limp ${count} 次垃圾牌`;
+  $("#warning-text").textContent = pickLimpWarning(count);
+  $("#limp-warning-overlay").classList.remove("hidden");
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+}
+
+function hideLimpWarning() {
+  $("#limp-warning-overlay").classList.add("hidden");
+}
+
+function setupLimpCounter() {
+  $("#limp-inc").addEventListener("click", () => {
+    const s = loadActive();
+    if (!s) return;
+    s.limpCount = (s.limpCount || 0) + 1;
+    saveActive(s);
+    updateLimpDisplay();
+    if (s.limpCount > 0 && s.limpCount % 3 === 0) {
+      showLimpWarning(s.limpCount);
+    }
+  });
+  $("#limp-dec").addEventListener("click", () => {
+    const s = loadActive();
+    if (!s) return;
+    s.limpCount = Math.max(0, (s.limpCount || 0) - 1);
+    saveActive(s);
+    updateLimpDisplay();
+  });
+  $("#limp-reset").addEventListener("click", () => {
+    const s = loadActive();
+    if (!s) return;
+    s.limpCount = 0;
+    saveActive(s);
+    updateLimpDisplay();
+  });
+  $("#warning-dismiss").addEventListener("click", hideLimpWarning);
+  $("#limp-warning-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "limp-warning-overlay") hideLimpWarning();
+  });
+}
+
+function updateDailyMotto() {
+  const el = $("#daily-motto");
+  if (!el) return;
+  el.textContent = `"${getDailyMotto()}"`;
 }
 
 function endAt(s) {
@@ -936,6 +1062,8 @@ async function boot() {
   setupRanges();
   setupRecentClicks();
   setupBankroll();
+  setupLimpCounter();
+  updateDailyMotto();
 
   refreshRecent();  // fire and forget; home view shows immediately
 

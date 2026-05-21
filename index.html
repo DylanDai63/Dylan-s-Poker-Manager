@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=16" />
+  <link rel="stylesheet" href="css/styles.css?v=17" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -53,6 +53,16 @@
   <div id="error-banner" class="error-banner hidden"></div>
   <div id="toast" class="toast hidden"></div>
 
+  <!-- limp warning overlay (global) -->
+  <div id="limp-warning-overlay" class="limp-warning-overlay hidden">
+    <div class="limp-warning-card">
+      <div class="warning-emoji">⚠️</div>
+      <div class="warning-count" id="warning-count">已经 limp 3 次垃圾牌</div>
+      <div class="warning-text" id="warning-text">--</div>
+      <button type="button" id="warning-dismiss" class="primary">收到，会改</button>
+    </div>
+  </div>
+
   <!-- HOME -->
   <section id="view-home" class="view hidden">
     <button type="button" id="active-banner" class="active-banner hidden">
@@ -65,6 +75,7 @@
       <div class="spade">♠</div>
       <h1>Poker Helper</h1>
       <p class="subtitle">准备好就开打</p>
+      <div class="daily-motto" id="daily-motto">"..."</div>
     </header>
 
     <div class="card">
@@ -107,16 +118,18 @@
       <p class="subtitle" id="running-meta">开始于 --</p>
     </header>
 
-    <div class="card">
-      <h2>提示</h2>
-      <div class="value muted small">
-        计时基于开始时刻，关网页 / 锁屏都不会丢。<br>
-        到点会响铃 + 震动 + 红色横幅。
+    <div class="card limp-card">
+      <h2>垃圾牌 limp 计数</h2>
+      <div class="limp-counter-row">
+        <button type="button" id="limp-dec" class="counter-btn">−</button>
+        <div class="limp-number" id="limp-count">0</div>
+        <button type="button" id="limp-inc" class="counter-btn primary-counter">+</button>
       </div>
+      <button type="button" id="limp-reset" class="text-button">重置</button>
     </div>
 
-    <button id="end-btn" class="danger big">⏹  End Session</button>
     <button id="ranges-btn" class="secondary big">📊  翻前范围</button>
+    <button id="end-btn" class="danger big">⏹  End Session</button>
   </section>
 
   <!-- ALARM -->
@@ -246,6 +259,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=16"></script>
+  <script type="module" src="js/app.js?v=17"></script>
 </body>
 </html>
