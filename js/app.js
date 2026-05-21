@@ -33,6 +33,27 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 function showView(id) {
   $$(".view").forEach((v) => v.classList.add("hidden"));
   $(`#${id}`).classList.remove("hidden");
+  if (id === "view-home") updateActiveBanner();
+}
+
+function updateActiveBanner() {
+  const banner = $("#active-banner");
+  if (!banner) return;
+  const s = loadActive();
+  if (!s) {
+    banner.classList.add("hidden");
+    return;
+  }
+  banner.classList.remove("hidden");
+  const remaining = endAt(s) - Date.now();
+  const timeEl = $("#active-banner-time");
+  if (remaining > 0) {
+    timeEl.textContent = `剩 ${formatHMS(remaining)}`;
+    banner.classList.remove("expired");
+  } else {
+    timeEl.textContent = `超时 ${formatHMS(-remaining)}`;
+    banner.classList.add("expired");
+  }
 }
 
 let toastTimer = null;
@@ -343,6 +364,7 @@ function startCountdownLoop() {
     } else {
       el.textContent = formatHMS(remaining);
     }
+    updateActiveBanner();         // keep home banner countdown in sync
     countdownRAF = requestAnimationFrame(throttledTick);
   };
 
@@ -378,6 +400,15 @@ function setupRunning() {
   $("#ranges-btn").addEventListener("click", () => {
     prevView = "view-running";
     enterRanges();
+  });
+  // Back to home while session is running — countdown keeps ticking in
+  // the background and will still trigger the alarm when time runs out.
+  $("#running-back").addEventListener("click", () => {
+    showView("view-home");
+  });
+  // Tap the "牌局进行中" banner on home to return to the timer.
+  $("#active-banner").addEventListener("click", () => {
+    if (loadActive()) enterRunning();
   });
 }
 
@@ -924,16 +955,16 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// When page becomes visible again, re-check timer state
+// When page becomes visible again, re-check timer state from any view
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   const s = loadActive();
   if (!s) return;
-  const currentView = $$(".view").find((v) => !v.classList.contains("hidden"));
-  if (!currentView) return;
-  if (currentView.id === "view-running") {
-    const remaining = endAt(s) - Date.now();
-    if (remaining <= 0 && !s.alarmStopped) enterAlarm();
+  const remaining = endAt(s) - Date.now();
+  if (remaining <= 0 && !s.alarmStopped) {
+    enterAlarm();
+  } else {
+    updateActiveBanner();
   }
 });
 

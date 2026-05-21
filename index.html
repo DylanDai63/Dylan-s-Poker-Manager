@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=14" />
+  <link rel="stylesheet" href="css/styles.css?v=15" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -55,6 +55,12 @@
 
   <!-- HOME -->
   <section id="view-home" class="view hidden">
+    <button type="button" id="active-banner" class="active-banner hidden">
+      <span class="active-banner-label">🃏 牌局进行中</span>
+      <span class="active-banner-time" id="active-banner-time">--</span>
+      <span class="active-banner-arrow">→</span>
+    </button>
+
     <header class="hero">
       <div class="spade">♠</div>
       <h1>Poker Helper</h1>
@@ -93,6 +99,7 @@
 
   <!-- RUNNING -->
   <section id="view-running" class="view hidden">
+    <button type="button" id="running-back" class="text-button running-back">← 主页</button>
     <header class="hero">
       <p class="subtitle">牌局进行中</p>
       <div id="countdown" class="countdown">--:--:--</div>
@@ -238,6 +245,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=14"></script>
+  <script type="module" src="js/app.js?v=15"></script>
 </body>
 </html>
