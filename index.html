@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=13" />
+  <link rel="stylesheet" href="css/styles.css?v=14" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -79,6 +79,15 @@
     <div class="recent">
       <h2>最近</h2>
       <div id="recent-list" class="recent-list"></div>
+    </div>
+
+    <div class="card bankroll-mini" id="bankroll-card">
+      <h2>
+        Bankroll
+        <span id="pnl-total" class="pnl-total">$0</span>
+      </h2>
+      <div class="bankroll-chart" id="bankroll-chart-mini"></div>
+      <div class="bankroll-mini-hint">点击查看详情</div>
     </div>
   </section>
 
@@ -164,6 +173,39 @@
     </div>
   </section>
 
+  <!-- BANKROLL DETAIL -->
+  <section id="view-bankroll" class="view view-ranges hidden">
+    <div class="ranges-header">
+      <button type="button" id="bankroll-close" class="text-button">← 返回</button>
+      <div class="ranges-title">Bankroll 详情</div>
+      <div style="width:60px"></div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat"><div class="stat-label">总盈亏</div><div class="stat-value" id="stat-total">$0</div></div>
+      <div class="stat"><div class="stat-label">Sessions</div><div class="stat-value" id="stat-count">0</div></div>
+      <div class="stat"><div class="stat-label">胜率</div><div class="stat-value" id="stat-winrate">—</div></div>
+      <div class="stat"><div class="stat-label">$/h</div><div class="stat-value" id="stat-hourly">—</div></div>
+    </div>
+
+    <div class="bankroll-chart" id="bankroll-chart-full"></div>
+
+    <div class="bankroll-legend">
+      <span><i class="dot dot-pos"></i>盈利</span>
+      <span><i class="dot dot-neg"></i>亏损</span>
+      <span class="muted small">点击折点看那场详情</span>
+    </div>
+
+    <div id="session-detail-card" class="card hidden">
+      <h2>选中的 Session</h2>
+      <div class="value" id="detail-summary">--</div>
+      <div class="muted small" id="detail-times">--</div>
+      <div class="detail-amounts" id="detail-amounts">--</div>
+      <div class="muted small" id="detail-notes"></div>
+      <button type="button" id="detail-edit-btn" class="primary">编辑这条</button>
+    </div>
+  </section>
+
   <!-- EDIT EXISTING -->
   <section id="view-edit" class="view hidden">
     <header class="hero">
@@ -196,6 +238,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=13"></script>
+  <script type="module" src="js/app.js?v=14"></script>
 </body>
 </html>

@@ -186,3 +186,28 @@ alter table sessions disable row level security;
 | 范围数据格式 | 每手牌 → `[raise, call]`（0..1），fold 隐式 = 1 - r - c |
 | 编辑时间选择 | `<input type="datetime-local">`，iOS 原生选择器 |
 | 删除确认 | 简单 `confirm()` |
+
+---
+
+## v3 计划（2026-05-21）
+
+### v3-A. Bankroll 折线图
+- **主页下方**：紧凑 mini chart 显示累计盈亏曲线
+  - 一条线，无 axis label，节省空间
+  - 顶部显示当前总盈亏 `+$X` / `-$X`
+  - 点击进入详情页
+- **详情页 (新 view: view-bankroll)**：
+  - 大图 (~280px 高)，含日期轴 + 金额轴
+  - 顶部统计：总盈亏 / session 数 / 胜率 / 时薪
+  - **点折点**：下方显示那场 session 的详情 + "编辑"按钮
+  - 折点颜色：盈利绿、亏损红
+- **数据源**：Supabase 全部 sessions（升序按时间）
+- **空状态**：还没数据时显示提示
+
+### v3 技术决策
+| 项 | 决策 |
+|---|---|
+| 图表实现 | 手写 SVG (无依赖) |
+| 折点交互 | 点击 circle → 下方显示 session card |
+| 数据缓存 | 一次 fetch 全部，切片用于"最近"列表 |
+| 累计起点 | 从 $0 起 (不要求初始 bankroll) |

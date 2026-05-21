@@ -17,11 +17,13 @@ const LS_DURATION = "poker.lastDurationMins";
 let countdownRAF = null;
 let alarmInterval = null;
 let audioCtx = null;
-let recentCache = [];                         // last fetched sessions list
+let allSessionsCache = [];                    // all sessions, ASC by started_at
+let recentCache = [];                          // last 8 sessions, DESC (for "最近" list)
 let editingId = null;                          // session being edited
 let prevView = "view-home";                    // where to return after closing ranges
 let rangeScenario = "RFI";
 let rangePosition = "BTN";
+let selectedBankrollSessionId = null;
 
 // ───────────────────────── DOM helpers ─────────────────────────
 
@@ -179,12 +181,11 @@ async function deleteSessionFromCloud(id) {
   if (error) throw error;
 }
 
-async function listRecent(limit = 8) {
+async function listAllSessions() {
   const { data, error } = await supabase
     .from("sessions")
     .select("*")
-    .order("started_at", { ascending: false })
-    .limit(limit);
+    .order("started_at", { ascending: true });
   if (error) throw error;
   return data || [];
 }
@@ -215,8 +216,10 @@ function renderRecent(list) {
 
 async function refreshRecent() {
   try {
-    recentCache = await listRecent();
+    allSessionsCache = await listAllSessions();
+    recentCache = allSessionsCache.slice(-8).reverse();
     renderRecent(recentCache);
+    renderBankrollMini();
   } catch (err) {
     console.error(err);
     $("#recent-list").innerHTML = `<div class="recent-empty">加载失败：${err.message || err}</div>`;
@@ -639,6 +642,254 @@ function setupRanges() {
   });
 }
 
+// ───────────────────────── bankroll view ─────────────────────────
+
+function sessionPnl(s) {
+  return Number(s.cash_out) - Number(s.buy_in);
+}
+
+function buildBankrollPoints(sessions) {
+  // sessions assumed ASC by started_at. Returns [{time, pnl, session}].
+  // First point is a synthetic anchor at $0 just before the first session.
+  if (sessions.length === 0) return [];
+  const first = new Date(sessions[0].started_at);
+  const points = [{ time: new Date(first.getTime() - 1), pnl: 0, session: null }];
+  let cumul = 0;
+  for (const s of sessions) {
+    cumul += sessionPnl(s);
+    points.push({ time: new Date(s.ended_at), pnl: cumul, session: s });
+  }
+  return points;
+}
+
+function renderBankrollChart(container, sessions, { mini = true, selectedId = null, onPointTap = null } = {}) {
+  container.innerHTML = "";
+
+  if (sessions.length === 0) {
+    container.innerHTML = `<div class="chart-empty">还没记录过 session</div>`;
+    return;
+  }
+
+  const points = buildBankrollPoints(sessions);
+  const W = container.clientWidth || 320;
+  const H = mini ? 120 : 280;
+  const padTop = mini ? 8 : 14;
+  const padBottom = mini ? 8 : 26;
+  const padLeft = mini ? 8 : 44;
+  const padRight = mini ? 8 : 12;
+  const innerW = Math.max(1, W - padLeft - padRight);
+  const innerH = Math.max(1, H - padTop - padBottom);
+
+  const minTime = points[0].time.getTime();
+  const maxTime = points[points.length - 1].time.getTime();
+  const timeRange = Math.max(1, maxTime - minTime);
+
+  let minPnl = Math.min(...points.map((p) => p.pnl));
+  let maxPnl = Math.max(...points.map((p) => p.pnl));
+  if (minPnl === maxPnl) {
+    minPnl -= 10;
+    maxPnl += 10;
+  }
+  if (minPnl > 0) minPnl = 0;
+  if (maxPnl < 0) maxPnl = 0;
+  const pnlRange = maxPnl - minPnl || 1;
+
+  const xFor = (t) => padLeft + ((t.getTime() - minTime) / timeRange) * innerW;
+  const yFor = (p) => padTop + (1 - (p - minPnl) / pnlRange) * innerH;
+
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+
+  // Zero line (only if range crosses zero)
+  if (minPnl < 0 && maxPnl > 0) {
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", padLeft);
+    line.setAttribute("x2", W - padRight);
+    line.setAttribute("y1", yFor(0));
+    line.setAttribute("y2", yFor(0));
+    line.setAttribute("class", "zero-line");
+    svg.appendChild(line);
+  }
+
+  // Line path
+  const lastPnl = points[points.length - 1].pnl;
+  const lineCls = lastPnl > 0 ? "chart-line pos" : lastPnl < 0 ? "chart-line neg" : "chart-line";
+  let d = "";
+  for (let i = 0; i < points.length; i++) {
+    d += (i === 0 ? "M" : "L") + xFor(points[i].time).toFixed(1) + "," + yFor(points[i].pnl).toFixed(1);
+  }
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", d);
+  path.setAttribute("class", lineCls);
+  svg.appendChild(path);
+
+  // Points (skip synthetic anchor at index 0)
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i];
+    const cx = xFor(p.time);
+    const cy = yFor(p.pnl);
+    const pnl = sessionPnl(p.session);
+    const cls = pnl >= 0 ? "chart-point pos" : "chart-point neg";
+    const isSelected = selectedId && p.session.id === selectedId;
+
+    const c = document.createElementNS(ns, "circle");
+    c.setAttribute("cx", cx);
+    c.setAttribute("cy", cy);
+    c.setAttribute("r", mini ? 2.5 : isSelected ? 7 : 4.5);
+    c.setAttribute("class", cls + (isSelected ? " selected" : ""));
+    svg.appendChild(c);
+
+    if (onPointTap && !mini) {
+      // Larger invisible tap target
+      const tap = document.createElementNS(ns, "circle");
+      tap.setAttribute("cx", cx);
+      tap.setAttribute("cy", cy);
+      tap.setAttribute("r", 14);
+      tap.setAttribute("fill", "transparent");
+      tap.style.cursor = "pointer";
+      tap.dataset.id = p.session.id;
+      svg.appendChild(tap);
+    }
+  }
+
+  // Axis labels (full only)
+  if (!mini) {
+    const mkText = (x, y, text, anchor = "start") => {
+      const t = document.createElementNS(ns, "text");
+      t.setAttribute("x", x);
+      t.setAttribute("y", y);
+      t.setAttribute("class", "chart-label");
+      t.setAttribute("text-anchor", anchor);
+      t.textContent = text;
+      svg.appendChild(t);
+    };
+    const fmtAxis = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+    mkText(padLeft, H - 8, fmtAxis(points[0].time));
+    mkText(W - padRight, H - 8, fmtAxis(points[points.length - 1].time), "end");
+    mkText(padLeft - 4, padTop + 4, `$${Math.round(maxPnl)}`, "end");
+    mkText(padLeft - 4, padTop + innerH, `$${Math.round(minPnl)}`, "end");
+    if (minPnl < 0 && maxPnl > 0) {
+      mkText(padLeft - 4, yFor(0) + 3, "$0", "end");
+    }
+  }
+
+  if (onPointTap && !mini) {
+    svg.addEventListener("click", (e) => {
+      const id = e.target && e.target.dataset && e.target.dataset.id;
+      if (!id) return;
+      const session = sessions.find((s) => s.id === id);
+      if (session) onPointTap(session);
+    });
+  }
+
+  container.appendChild(svg);
+}
+
+function renderBankrollMini() {
+  const card = $("#bankroll-card");
+  const chart = $("#bankroll-chart-mini");
+  const total = $("#pnl-total");
+  if (!card || !chart || !total) return;
+
+  const sessions = allSessionsCache;
+  const sum = sessions.reduce((acc, s) => acc + sessionPnl(s), 0);
+  const sign = sum > 0 ? "+" : sum < 0 ? "−" : "";
+  total.textContent = `${sign}$${Math.abs(sum).toFixed(2)}`;
+  total.className = "pnl-total " + (sum > 0 ? "pos" : sum < 0 ? "neg" : "");
+
+  renderBankrollChart(chart, sessions, { mini: true });
+}
+
+function computeStats(sessions) {
+  if (sessions.length === 0) {
+    return { total: 0, count: 0, winrate: null, hourly: null };
+  }
+  let total = 0;
+  let wins = 0;
+  let totalMs = 0;
+  for (const s of sessions) {
+    const pnl = sessionPnl(s);
+    total += pnl;
+    if (pnl > 0) wins++;
+    totalMs += new Date(s.ended_at) - new Date(s.started_at);
+  }
+  const hours = totalMs / 1000 / 3600;
+  return {
+    total,
+    count: sessions.length,
+    winrate: wins / sessions.length,
+    hourly: hours > 0 ? total / hours : null,
+  };
+}
+
+function renderBankrollDetail() {
+  const sessions = allSessionsCache;
+  const stats = computeStats(sessions);
+
+  const totalEl = $("#stat-total");
+  const sign = stats.total > 0 ? "+" : stats.total < 0 ? "−" : "";
+  totalEl.textContent = `${sign}$${Math.abs(stats.total).toFixed(2)}`;
+  totalEl.className = "stat-value " + (stats.total > 0 ? "pos" : stats.total < 0 ? "neg" : "");
+
+  $("#stat-count").textContent = String(stats.count);
+  $("#stat-winrate").textContent = stats.winrate == null ? "—" : `${Math.round(stats.winrate * 100)}%`;
+  $("#stat-hourly").textContent = stats.hourly == null
+    ? "—"
+    : `${stats.hourly >= 0 ? "+" : "−"}$${Math.abs(stats.hourly).toFixed(1)}/h`;
+  const hourlyEl = $("#stat-hourly");
+  hourlyEl.className = "stat-value " + (stats.hourly == null ? "" : stats.hourly > 0 ? "pos" : stats.hourly < 0 ? "neg" : "");
+
+  renderBankrollChart($("#bankroll-chart-full"), sessions, {
+    mini: false,
+    selectedId: selectedBankrollSessionId,
+    onPointTap: (session) => {
+      selectedBankrollSessionId = session.id;
+      renderBankrollDetail();        // re-render to highlight selected point
+      renderSessionDetailCard(session);
+    },
+  });
+
+  // If a session was previously selected and still exists, re-render its card
+  if (selectedBankrollSessionId) {
+    const s = sessions.find((x) => x.id === selectedBankrollSessionId);
+    if (s) renderSessionDetailCard(s);
+  }
+}
+
+function renderSessionDetailCard(session) {
+  const card = $("#session-detail-card");
+  card.classList.remove("hidden");
+  const started = new Date(session.started_at);
+  const ended = new Date(session.ended_at);
+  const pnl = sessionPnl(session);
+  const sign = pnl > 0 ? "+" : pnl < 0 ? "−" : "";
+  const cls = pnl > 0 ? "pos" : pnl < 0 ? "neg" : "";
+
+  $("#detail-summary").textContent = `${formatDate(started)} · ${formatDuration(ended - started)}`;
+  $("#detail-times").textContent = `${formatHM(started)} → ${formatHM(ended)}`;
+  $("#detail-amounts").innerHTML = `
+    <div><div class="label">Buy-in</div><div class="v">$${Number(session.buy_in).toFixed(2)}</div></div>
+    <div><div class="label">Cash-out</div><div class="v">$${Number(session.cash_out).toFixed(2)}</div></div>
+    <div><div class="label">P/L</div><div class="v ${cls}">${sign}$${Math.abs(pnl).toFixed(2)}</div></div>
+  `;
+  $("#detail-notes").textContent = session.notes || "";
+  $("#detail-edit-btn").onclick = () => enterEdit(session);
+}
+
+function enterBankroll() {
+  selectedBankrollSessionId = null;
+  $("#session-detail-card").classList.add("hidden");
+  showView("view-bankroll");
+  renderBankrollDetail();
+}
+
+function setupBankroll() {
+  $("#bankroll-card").addEventListener("click", enterBankroll);
+  $("#bankroll-close").addEventListener("click", () => showView("view-home"));
+}
+
 // ───────────────────────── routing ─────────────────────────
 
 async function boot() {
@@ -649,6 +900,7 @@ async function boot() {
   setupEdit();
   setupRanges();
   setupRecentClicks();
+  setupBankroll();
 
   refreshRecent();  // fire and forget; home view shows immediately
 

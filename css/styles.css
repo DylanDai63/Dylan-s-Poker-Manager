@@ -399,3 +399,156 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+/* bankroll chart */
+.bankroll-mini {
+  cursor: pointer;
+  user-select: none;
+}
+.bankroll-mini h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.pnl-total {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.3px;
+  color: var(--fg);
+}
+.pnl-total.pos { color: #6ee7a8; }
+.pnl-total.neg { color: #ffb3a8; }
+.bankroll-chart {
+  width: 100%;
+  margin-top: 8px;
+}
+.bankroll-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.bankroll-mini-hint {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+.chart-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 24px 0;
+}
+
+/* SVG chart elements */
+.chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke: var(--accent);
+}
+.chart-line.pos { stroke: #6ee7a8; }
+.chart-line.neg { stroke: #ffb3a8; }
+.chart-area {
+  opacity: 0.15;
+}
+.chart-area.pos { fill: #6ee7a8; }
+.chart-area.neg { fill: #ffb3a8; }
+.zero-line {
+  stroke: rgba(255,255,255,0.25);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.chart-point {
+  stroke: var(--bg-2);
+  stroke-width: 2;
+  fill: var(--muted);
+  pointer-events: none;
+}
+.chart-point.pos { fill: #6ee7a8; }
+.chart-point.neg { fill: #ffb3a8; }
+.chart-point.selected {
+  r: 8;
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.chart-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* stat grid (bankroll detail) */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.stat {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.stat-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.stat-value {
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+  letter-spacing: -0.3px;
+}
+.stat-value.pos { color: #6ee7a8; }
+.stat-value.neg { color: #ffb3a8; }
+
+.bankroll-legend {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.bankroll-legend .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.bankroll-legend .dot-pos { background: #6ee7a8; }
+.bankroll-legend .dot-neg { background: #ffb3a8; }
+
+.detail-amounts {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.detail-amounts > div {
+  flex: 1;
+  text-align: center;
+  padding: 6px 0;
+}
+.detail-amounts .label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.detail-amounts .v {
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.detail-amounts .v.pos { color: #6ee7a8; }
+.detail-amounts .v.neg { color: #ffb3a8; }
