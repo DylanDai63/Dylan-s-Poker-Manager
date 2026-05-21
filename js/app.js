@@ -305,6 +305,10 @@ function setupHome() {
     enterRunning();
   });
 
+  $("#ranges-btn-home").addEventListener("click", () => {
+    prevView = "view-home";
+    enterRanges();
+  });
 }
 
 function selectDurationChip(mins) {
