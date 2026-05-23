@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=17" />
+  <link rel="stylesheet" href="css/styles.css?v=18" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -118,6 +118,8 @@
       <p class="subtitle" id="running-meta">开始于 --</p>
     </header>
 
+    <button id="break-btn" class="break-btn big">☕  出去休息（暂停计时）</button>
+
     <div class="card limp-card">
       <h2>垃圾牌 limp 计数</h2>
       <div class="limp-counter-row">
@@ -130,6 +132,24 @@
 
     <button id="ranges-btn" class="secondary big">📊  翻前范围</button>
     <button id="end-btn" class="danger big">⏹  End Session</button>
+  </section>
+
+  <!-- BREAK -->
+  <section id="view-break" class="view hidden">
+    <header class="hero">
+      <div class="spade break-icon">☕</div>
+      <h1>休息中</h1>
+      <p class="subtitle">倒计时已暂停</p>
+    </header>
+
+    <div class="break-elapsed" id="break-elapsed">00:00</div>
+    <p class="subtitle break-total" id="break-total">本场累计休息 0 分钟</p>
+
+    <div class="card break-motto-card">
+      <div class="break-motto" id="break-motto">"..."</div>
+    </div>
+
+    <button id="break-resume" class="primary big">✓  结束休息，回牌桌</button>
   </section>
 
   <!-- ALARM -->
@@ -259,6 +279,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=17"></script>
+  <script type="module" src="js/app.js?v=18"></script>
 </body>
 </html>

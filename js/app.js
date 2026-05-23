@@ -45,7 +45,7 @@ function updateActiveBanner() {
     return;
   }
   banner.classList.remove("hidden");
-  const remaining = endAt(s) - Date.now();
+  const remaining = remainingMs(s);
   const timeEl = $("#active-banner-time");
   if (remaining > 0) {
     timeEl.textContent = `剩 ${formatHMS(remaining)}`;
@@ -158,6 +158,27 @@ function getDailyMotto() {
 function pickLimpWarning(count) {
   const idx = Math.max(0, Math.floor(count / 3) - 1) % LIMP_WARNINGS.length;
   return LIMP_WARNINGS[idx];
+}
+
+const BREAK_MOTTOS = [
+  "起来走走，活动一下，喝口水。",
+  "深呼吸。重置情绪。回来是新的开始。",
+  "休息是为了走更远 —— 但别忘了回来。",
+  "tilt 了？这个休息来得正好。冷静再回去。",
+  "喝水，别喝酒。清醒的大脑才赢钱。",
+  "复盘一下：刚才有没有打丢的 spot？",
+  "累了就多歇会儿。疲劳是 EV 杀手。",
+  "输了别急着回去翻本，那是 tilt。",
+  "赢了别飘，回去还是打你的 A game。",
+  "看看窗外，让眼睛和脑子都歇歇。",
+  "记住今天的目标：是赚钱，不是刺激。",
+  "回去之前问自己：我还能保持纪律吗？",
+  "好的休息让你下一小时更清醒。",
+  "把上一手的好坏都放下，回去重新开始。",
+];
+
+function pickBreakMotto() {
+  return BREAK_MOTTOS[Math.floor(Math.random() * BREAK_MOTTOS.length)];
 }
 
 // ───────────────────────── formatting ─────────────────────────
@@ -369,6 +390,9 @@ function setupHome() {
       startedAt: Date.now(),
       plannedMinutes: pickedMinutes,
       alarmStopped: false,
+      limpCount: 0,
+      totalBreakMs: 0,
+      breakStartedAt: null,
     };
     saveActive(s);
     localStorage.setItem(LS_DURATION, String(pickedMinutes));
@@ -471,7 +495,16 @@ function updateDailyMotto() {
 }
 
 function endAt(s) {
-  return s.startedAt + s.plannedMinutes * 60000;
+  // Planned end pushes forward by completed break time so the countdown
+  // "pauses" across breaks.
+  return s.startedAt + s.plannedMinutes * 60000 + (s.totalBreakMs || 0);
+}
+
+function remainingMs(s) {
+  // While on break the countdown is frozen at the value it had when the
+  // break started.
+  if (s.breakStartedAt) return endAt(s) - s.breakStartedAt;
+  return endAt(s) - Date.now();
 }
 
 function startCountdownLoop() {
@@ -479,7 +512,7 @@ function startCountdownLoop() {
   const tick = () => {
     const s = loadActive();
     if (!s) return;
-    const remaining = endAt(s) - Date.now();
+    const remaining = remainingMs(s);
     const el = $("#countdown");
     el.classList.toggle("warn", remaining > 0 && remaining <= 5 * 60000);
     el.classList.toggle("expired", remaining <= 0);
@@ -502,7 +535,7 @@ function startCountdownLoop() {
   const throttledTick = () => {
     const s = loadActive();
     if (!s) return;
-    const remaining = endAt(s) - Date.now();
+    const remaining = remainingMs(s);
     const sec = Math.floor(remaining / 1000);
     if (sec !== lastSec) {
       lastSec = sec;
@@ -542,6 +575,68 @@ function setupRunning() {
   });
 }
 
+// ───────────────────────── break view ─────────────────────────
+
+let breakInterval = null;
+
+function enterBreak() {
+  const s = loadActive();
+  if (!s) {
+    showView("view-home");
+    return;
+  }
+  stopCountdownLoop();             // freeze countdown during break
+  if (!s.breakStartedAt) {
+    s.breakStartedAt = Date.now();
+    saveActive(s);
+  }
+  $("#break-motto").textContent = `"${pickBreakMotto()}"`;
+  showView("view-break");
+  startBreakLoop();
+}
+
+function resumeFromBreak() {
+  const s = loadActive();
+  if (!s) {
+    showView("view-home");
+    return;
+  }
+  if (s.breakStartedAt) {
+    s.totalBreakMs = (s.totalBreakMs || 0) + (Date.now() - s.breakStartedAt);
+    s.breakStartedAt = null;
+    saveActive(s);
+  }
+  stopBreakLoop();
+  enterRunning();
+}
+
+function startBreakLoop() {
+  stopBreakLoop();
+  updateBreakDisplay();
+  breakInterval = setInterval(updateBreakDisplay, 1000);
+}
+
+function stopBreakLoop() {
+  if (breakInterval) {
+    clearInterval(breakInterval);
+    breakInterval = null;
+  }
+}
+
+function updateBreakDisplay() {
+  const s = loadActive();
+  if (!s || !s.breakStartedAt) return;
+  const elapsed = Date.now() - s.breakStartedAt;
+  $("#break-elapsed").textContent = formatHMS(elapsed);
+  const totalSoFar = (s.totalBreakMs || 0) + elapsed;
+  $("#break-total").textContent = `本场累计休息 ${Math.round(totalSoFar / 60000)} 分钟`;
+}
+
+function setupBreak() {
+  $("#break-btn").addEventListener("click", enterBreak);
+  $("#break-resume").addEventListener("click", resumeFromBreak);
+}
+
 // ───────────────────────── alarm view ─────────────────────────
 
 function enterAlarm() {
@@ -574,6 +669,8 @@ function setupAlarm() {
     if (s) {
       s.startedAt = Date.now();
       s.alarmStopped = false;
+      s.totalBreakMs = 0;
+      s.breakStartedAt = null;
       saveActive(s);
     }
     enterRunning();
@@ -1063,6 +1160,7 @@ async function boot() {
   setupRecentClicks();
   setupBankroll();
   setupLimpCounter();
+  setupBreak();
   updateDailyMotto();
 
   refreshRecent();  // fire and forget; home view shows immediately
@@ -1072,7 +1170,11 @@ async function boot() {
     showView("view-home");
     return;
   }
-  const remaining = endAt(s) - Date.now();
+  if (s.breakStartedAt) {
+    enterBreak();        // was on a break when app closed
+    return;
+  }
+  const remaining = remainingMs(s);
   if (remaining <= 0 && !s.alarmStopped) {
     enterAlarm();
   } else {
@@ -1092,7 +1194,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   const s = loadActive();
   if (!s) return;
-  const remaining = endAt(s) - Date.now();
+  const remaining = remainingMs(s);
   if (remaining <= 0 && !s.alarmStopped) {
     enterAlarm();
   } else {
