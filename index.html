@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=18" />
+  <link rel="stylesheet" href="css/styles.css?v=19" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -180,6 +180,9 @@
       <label>Cash-out (USD)
         <input type="number" id="cash-out" step="0.01" inputmode="decimal" placeholder="0.00" required />
       </label>
+      <label>休息时长（分钟）
+        <input type="number" id="break-min" step="1" min="0" inputmode="numeric" placeholder="0" />
+      </label>
       <label>备注 (可选)
         <textarea id="notes" rows="3" placeholder="场地 / 桌型 / 心得..."></textarea>
       </label>
@@ -270,6 +273,9 @@
       <label>Cash-out (USD)
         <input type="number" id="edit-cash-out" step="0.01" inputmode="decimal" required />
       </label>
+      <label>休息时长（分钟）
+        <input type="number" id="edit-break-min" step="1" min="0" inputmode="numeric" />
+      </label>
       <label>备注
         <textarea id="edit-notes" rows="3"></textarea>
       </label>
@@ -279,6 +285,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=18"></script>
+  <script type="module" src="js/app.js?v=19"></script>
 </body>
 </html>

@@ -697,11 +697,17 @@ function enterRecord() {
     startedAt: new Date(s.startedAt),
     endedAt: new Date(),
     plannedMinutes: s.plannedMinutes,
+    breakMinutes: Math.round((s.totalBreakMs || 0) / 60000),
   };
+  const grossMs = recordContext.endedAt - recordContext.startedAt;
+  const netMs = grossMs - recordContext.breakMinutes * 60000;
   $("#record-summary").textContent =
-    `${formatHM(recordContext.startedAt)} → ${formatHM(recordContext.endedAt)} · ${formatDuration(recordContext.endedAt - recordContext.startedAt)}`;
+    recordContext.breakMinutes > 0
+      ? `${formatHM(recordContext.startedAt)} → ${formatHM(recordContext.endedAt)} · 净打 ${formatDuration(netMs)}（休息 ${recordContext.breakMinutes}m）`
+      : `${formatHM(recordContext.startedAt)} → ${formatHM(recordContext.endedAt)} · ${formatDuration(grossMs)}`;
   $("#buy-in").value = "";
   $("#cash-out").value = "";
+  $("#break-min").value = recordContext.breakMinutes || 0;
   $("#notes").value = "";
   showView("view-record");
   setTimeout(() => $("#buy-in").focus(), 200);
@@ -721,12 +727,14 @@ function setupRecord() {
     btn.disabled = true;
     btn.textContent = "保存中...";
     try {
+      const breakMin = Math.max(0, parseInt($("#break-min").value, 10) || 0);
       await saveSessionToCloud({
         started_at: recordContext.startedAt.toISOString(),
         ended_at: recordContext.endedAt.toISOString(),
         planned_duration_minutes: recordContext.plannedMinutes,
         buy_in: buyIn,
         cash_out: cashOut,
+        break_minutes: breakMin,
         notes: $("#notes").value.trim() || null,
       });
       clearActive();
@@ -764,6 +772,7 @@ function enterEdit(session) {
   $("#edit-planned").value = session.planned_duration_minutes;
   $("#edit-buy-in").value = session.buy_in;
   $("#edit-cash-out").value = session.cash_out;
+  $("#edit-break-min").value = Math.round(Number(session.break_minutes) || 0);
   $("#edit-notes").value = session.notes || "";
   showView("view-edit");
 }
@@ -792,6 +801,7 @@ function setupEdit() {
         planned_duration_minutes: parseInt($("#edit-planned").value, 10),
         buy_in: parseFloat($("#edit-buy-in").value),
         cash_out: parseFloat($("#edit-cash-out").value),
+        break_minutes: Math.max(0, parseInt($("#edit-break-min").value, 10) || 0),
         notes: $("#edit-notes").value.trim() || null,
       });
       toast("已保存", "ok");
@@ -1066,14 +1076,16 @@ function computeStats(sessions) {
   }
   let total = 0;
   let wins = 0;
-  let totalMs = 0;
+  let playMs = 0;   // net playing time = gross − break, for accurate $/h
   for (const s of sessions) {
     const pnl = sessionPnl(s);
     total += pnl;
     if (pnl > 0) wins++;
-    totalMs += new Date(s.ended_at) - new Date(s.started_at);
+    const gross = new Date(s.ended_at) - new Date(s.started_at);
+    const breakMs = (Number(s.break_minutes) || 0) * 60000;
+    playMs += Math.max(0, gross - breakMs);
   }
-  const hours = totalMs / 1000 / 3600;
+  const hours = playMs / 1000 / 3600;
   return {
     total,
     count: sessions.length,
@@ -1125,7 +1137,14 @@ function renderSessionDetailCard(session) {
   const sign = pnl > 0 ? "+" : pnl < 0 ? "−" : "";
   const cls = pnl > 0 ? "pos" : pnl < 0 ? "neg" : "";
 
-  $("#detail-summary").textContent = `${formatDate(started)} · ${formatDuration(ended - started)}`;
+  const breakMin = Math.round(Number(session.break_minutes) || 0);
+  const grossMs = ended - started;
+  if (breakMin > 0) {
+    const netMs = Math.max(0, grossMs - breakMin * 60000);
+    $("#detail-summary").textContent = `${formatDate(started)} · 净打 ${formatDuration(netMs)}（休息 ${breakMin}m）`;
+  } else {
+    $("#detail-summary").textContent = `${formatDate(started)} · ${formatDuration(grossMs)}`;
+  }
   $("#detail-times").textContent = `${formatHM(started)} → ${formatHM(ended)}`;
   $("#detail-amounts").innerHTML = `
     <div><div class="label">Buy-in</div><div class="v">$${Number(session.buy_in).toFixed(2)}</div></div>
