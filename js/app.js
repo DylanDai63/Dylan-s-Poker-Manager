@@ -1,9 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_KEY } from "./config.js";
-import {
-  POSITIONS_RFI, POSITIONS_VS_UTG, POSITION_LABEL,
-  cellAction, handAt,
-} from "./ranges.js";
+import { POSITIONS_RFI, POSITIONS_VS_UTG, POSITION_LABEL } from "./ranges.js";
+import { rangeGridHTML } from "./range-grid.js";
+import { setupTrainer, enterTrainer } from "./trainer.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false },
@@ -361,7 +360,7 @@ function setupHome() {
     const btn = e.target.closest(".chip");
     if (!btn) return;
     if (btn.dataset.custom !== undefined) {
-      $$(".chip").forEach((c) => c.classList.remove("selected"));
+      $$("#duration-chips .chip").forEach((c) => c.classList.remove("selected"));
       btn.classList.add("selected");
       $("#duration-custom-wrap").classList.remove("hidden");
       const input = $("#duration-custom-input");
@@ -402,6 +401,10 @@ function setupHome() {
   $("#ranges-btn-home").addEventListener("click", () => {
     prevView = "view-home";
     enterRanges();
+  });
+  $("#trainer-btn-home").addEventListener("click", () => {
+    prevView = "view-home";
+    enterTrainer();
   });
 }
 
@@ -563,6 +566,10 @@ function setupRunning() {
   $("#ranges-btn").addEventListener("click", () => {
     prevView = "view-running";
     enterRanges();
+  });
+  $("#trainer-btn").addEventListener("click", () => {
+    prevView = "view-running";
+    enterTrainer();
   });
   // Back to home while session is running — countdown keeps ticking in
   // the background and will still trigger the alarm when time runs out.
@@ -859,22 +866,7 @@ function renderPositionChips() {
 }
 
 function renderRangeGrid() {
-  const grid = $("#range-grid");
-  const cells = [];
-  for (let r = 0; r < 13; r++) {
-    for (let c = 0; c < 13; c++) {
-      const hand = handAt(r, c);
-      const { r: pr, c: pc } = cellAction(r, c, rangeScenario, rangePosition);
-      const pf = Math.max(0, 1 - pr - pc);
-      const bars = [
-        pr > 0 ? `<div class="bar-r" style="flex-grow:${pr}"></div>` : "",
-        pc > 0 ? `<div class="bar-c" style="flex-grow:${pc}"></div>` : "",
-        pf > 0 ? `<div class="bar-f" style="flex-grow:${pf}"></div>` : "",
-      ].join("");
-      cells.push(`<div class="range-cell"><div class="bars">${bars}</div><span class="label">${hand}</span></div>`);
-    }
-  }
-  grid.innerHTML = cells.join("");
+  $("#range-grid").innerHTML = rangeGridHTML(rangeScenario, rangePosition);
 }
 
 function setupRanges() {
@@ -1157,6 +1149,18 @@ async function boot() {
   setupRecord();
   setupEdit();
   setupRanges();
+  try {
+    setupTrainer({
+      showView,
+      onClose: () => {
+        // Drop the #trainer deep link so a reload lands on the normal view.
+        if (location.hash === "#trainer") history.replaceState(null, "", location.pathname + location.search);
+        showView(prevView || "view-home");
+      },
+    });
+  } catch (err) {
+    console.error("[trainer] setup failed, timer keeps working", err);
+  }
   setupRecentClicks();
   setupBankroll();
   setupLimpCounter();
@@ -1202,7 +1206,14 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-boot().catch((err) => {
+boot().then(() => {
+  // Deep link for desktop practice: index.html#trainer opens the trainer
+  // directly (never on top of the alarm screen).
+  if (location.hash === "#trainer" && $("#view-alarm").classList.contains("hidden")) {
+    prevView = ($$(".view").find((v) => !v.classList.contains("hidden")) || {}).id || "view-home";
+    enterTrainer();
+  }
+}).catch((err) => {
   console.error("boot failed", err);
   showFatalError("启动失败：" + (err.message || err));
 });

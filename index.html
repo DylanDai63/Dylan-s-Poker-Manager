@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=20" />
+  <link rel="stylesheet" href="css/styles.css?v=21" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -93,6 +93,7 @@
 
     <button id="start-btn" class="primary big">▶  Start Session</button>
     <button type="button" id="ranges-btn-home" class="secondary">📊  翻前范围参考</button>
+    <button type="button" id="trainer-btn-home" class="secondary">🎯  翻前练习</button>
 
     <div class="recent">
       <h2>最近</h2>
@@ -131,6 +132,7 @@
     </div>
 
     <button id="ranges-btn" class="secondary big">📊  翻前范围</button>
+    <button id="trainer-btn" class="secondary big">🎯  翻前练习</button>
     <button id="end-btn" class="danger big">⏹  End Session</button>
   </section>
 
@@ -214,6 +216,53 @@
     </div>
   </section>
 
+  <!-- TRAINER (preflop practice) -->
+  <section id="view-trainer" class="view view-ranges view-trainer hidden">
+    <div class="ranges-header">
+      <button type="button" id="trainer-close" class="text-button">← 返回</button>
+      <div class="ranges-title">翻前练习</div>
+      <div style="width:60px"></div>
+    </div>
+
+    <div class="chips" id="trainer-scenario-chips">
+      <button type="button" class="chip selected" data-scenario="RFI">开池 RFI</button>
+      <button type="button" class="chip" data-scenario="VS_UTG">vs UTG 开池</button>
+    </div>
+
+    <div class="chips" id="trainer-position-chips"><!-- filled by JS --></div>
+
+    <div class="tr-layout">
+      <div class="tr-main">
+        <div class="tr-situation" id="trainer-situation">--</div>
+
+        <div class="tr-table">
+          <svg id="trainer-table-svg" viewBox="0 0 640 320" aria-label="table"><!-- filled by JS --></svg>
+          <div class="tr-hero">
+            <div class="tr-cards" id="trainer-cards"><!-- filled by JS --></div>
+          </div>
+        </div>
+        <div class="tr-hand-row"><span class="tr-hand-label" id="trainer-hand-label">--</span></div>
+
+        <div class="tr-actions" id="trainer-actions"><!-- filled by JS --></div>
+        <div class="tr-result" id="trainer-result"></div>
+        <button type="button" id="trainer-next" class="primary big hidden">下一手 →</button>
+        <div class="tr-keys">快捷键:F / C / R(或 1 / 2 / 3)作答 · Space / Enter 下一手</div>
+      </div>
+
+      <aside class="tr-side">
+        <div class="card tr-stats-card">
+          <h2>本轮成绩 <button type="button" id="trainer-stats-reset" class="text-button">重置</button></h2>
+          <div class="tr-stats" id="trainer-stats"><!-- filled by JS --></div>
+          <div class="tr-accuracy muted small" id="trainer-accuracy">还没作答</div>
+        </div>
+        <div class="card tr-range-card">
+          <h2>范围表 <button type="button" id="trainer-range-toggle" class="text-button">显示</button></h2>
+          <div id="trainer-range" class="tr-range hidden"><!-- filled by JS --></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
   <!-- BANKROLL DETAIL -->
   <section id="view-bankroll" class="view view-ranges hidden">
     <div class="ranges-header">
@@ -279,6 +328,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=20"></script>
+  <script type="module" src="js/app.js?v=21"></script>
 </body>
 </html>
