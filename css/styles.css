@@ -853,6 +853,8 @@ svg.compact .tr-dealer text { font-size: 14px; }
 .tr-hand-row {
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 8px;
   margin-top: -6px;
 }
 .tr-hand-label {
@@ -969,12 +971,12 @@ svg.compact .tr-dealer text { font-size: 14px; }
 @media (hover: none) { .tr-keys { display: none; } }
 
 /* side panel */
-.tr-stats-card h2, .tr-range-card h2 {
+.tr-stats-card h2, .tr-range-card h2, .tr-pick-card h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.tr-stats-card h2 .text-button, .tr-range-card h2 .text-button {
+.tr-stats-card h2 .text-button, .tr-range-card h2 .text-button, .tr-pick-card h2 .text-button {
   margin: 0;
   padding: 2px 6px;
   text-transform: none;
@@ -1009,6 +1011,35 @@ svg.compact .tr-dealer text { font-size: 14px; }
 .range-cell.hl { box-shadow: inset 0 0 0 3px var(--accent); z-index: 3; }
 .range-cell.hl .label { color: var(--accent); font-weight: 800; }
 
+/* deal-range picker (which hands the trainer deals) */
+.tr-pick-summary { font-size: 14px; font-weight: 600; }
+.tr-pick {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tr-pick-presets .chip { padding: 6px 11px; font-size: 13px; }
+.tr-pick-pos { color: var(--muted); font-size: 12px; text-align: center; }
+.tr-pick-grid {
+  touch-action: none;   /* painting a selection must not scroll the page */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.tr-pick-grid .range-cell { cursor: pointer; }
+.range-cell.off { opacity: 0.22; }
+.range-cell.off .label { color: rgba(255,255,255,0.75); }
+.tr-pick-hint { text-align: center; }
+.tr-range-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2a1d05;
+  background: var(--accent);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
 /* ── phone layout (iPhone 17e class: 390×844, one-handed at the table) ──
    Kept at the END of the trainer styles on purpose: these override the
    base rules above at equal specificity, so source order is what makes
@@ -1016,6 +1047,7 @@ svg.compact .tr-dealer text { font-size: 14px; }
 @media (max-width: 600px) {
   /* room for the fixed dock; --dock-h is measured by trainer.js */
   .view-trainer {
+    --dock-lift: 48px;   /* how far the action dock floats above the bottom edge */
     gap: 10px;
     padding-bottom: calc(var(--dock-h, 240px) + 12px);
   }
@@ -1090,7 +1122,7 @@ svg.compact .tr-dealer text { font-size: 14px; }
   .tr-mark { top: -10px; right: -6px; font-size: 13px; padding: 2px 8px; }
   .tr-bar { height: 20px; }
   .tr-bar .pct { font-size: 12px; }
-  .tr-result { min-height: 18px; font-size: 14px; }
+  .tr-result { font-size: 14px; }
   #trainer-next.big { padding: 14px; font-size: 17px; }
   /* side panel becomes compact rows under the table */
   .tr-side { gap: 10px; }
@@ -1100,4 +1132,13 @@ svg.compact .tr-dealer text { font-size: 14px; }
   .tr-stat .l { font-size: 11px; margin-top: 0; }
   .tr-accuracy { margin-top: 4px; font-size: 12px; }
   .tr-range-card { padding: 10px 12px; }
+  .tr-pick-card { padding: 10px 12px; }
+  /* lift the whole dock off the bottom edge: the thumb reaches the buttons
+     without stretching down to the very end of the screen */
+  .tr-dock { padding-bottom: calc(var(--dock-lift) + 10px + env(safe-area-inset-bottom, 0px)); }
+  /* "next" goes ABOVE the three buttons: they never move between hands,
+     and next lands closer to the thumb than the bottom edge */
+  .tr-dock #trainer-next { order: -2; }
+  .tr-dock .tr-result { order: -1; min-height: 20px; }   /* above the buttons too: buttons + bars stay put */
+  .tr-dock .tr-keys { order: 2; }
 }

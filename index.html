@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=22" />
+  <link rel="stylesheet" href="css/styles.css?v=23" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -241,7 +241,10 @@
             <div class="tr-cards" id="trainer-cards"><!-- filled by JS --></div>
           </div>
         </div>
-        <div class="tr-hand-row"><span class="tr-hand-label" id="trainer-hand-label">--</span></div>
+        <div class="tr-hand-row">
+          <span class="tr-hand-label" id="trainer-hand-label">--</span>
+          <span class="tr-range-badge hidden" id="trainer-range-badge"></span>
+        </div>
 
         <!-- action dock: in-flow on desktop, pinned to the bottom (thumb zone) on phones -->
         <div class="tr-dock" id="trainer-dock">
@@ -257,6 +260,25 @@
           <h2>本轮成绩 <button type="button" id="trainer-stats-reset" class="text-button">重置</button></h2>
           <div class="tr-stats" id="trainer-stats"><!-- filled by JS --></div>
           <div class="tr-accuracy muted small" id="trainer-accuracy">还没作答</div>
+        </div>
+        <div class="card tr-pick-card">
+          <h2>发牌范围 <button type="button" id="trainer-pick-toggle" class="text-button">编辑</button></h2>
+          <div class="tr-pick-summary" id="trainer-pick-summary">全部 169 手</div>
+          <div id="trainer-pick" class="tr-pick hidden">
+            <div class="chips tr-pick-presets" id="trainer-pick-presets">
+              <button type="button" class="chip" data-preset="all">全部</button>
+              <button type="button" class="chip" data-preset="pairs">对子</button>
+              <button type="button" class="chip" data-preset="suited">同花</button>
+              <button type="button" class="chip" data-preset="offsuit">杂色</button>
+              <button type="button" class="chip" data-preset="playable">本位可玩手</button>
+              <button type="button" class="chip" data-preset="mixed">本位混合手</button>
+              <button type="button" class="chip" data-preset="invert">反选</button>
+              <button type="button" class="chip" data-preset="clear">清空</button>
+            </div>
+            <div class="tr-pick-pos" id="trainer-pick-pos"></div>
+            <div class="range-grid tr-pick-grid" id="trainer-pick-grid"><!-- filled by JS --></div>
+            <div class="tr-pick-hint muted small">点一格切换,按住划过一片批量选;只在选中的手牌里发牌。在网格外的地方滑动可翻页。</div>
+          </div>
         </div>
         <div class="card tr-range-card">
           <h2>范围表 <button type="button" id="trainer-range-toggle" class="text-button">显示</button></h2>
@@ -331,6 +353,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=22"></script>
+  <script type="module" src="js/app.js?v=23"></script>
 </body>
 </html>

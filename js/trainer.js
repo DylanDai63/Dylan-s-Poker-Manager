@@ -10,6 +10,7 @@ import {
   dealCombo, strategyFor, judge, topActions, nonZeroActions, actionsFor,
   normalizeChoice, pickPosition, potBefore, situationText,
   TABLE_GEOMETRY, tableLayout,
+  ALL_HANDS, dealFromHands, normalizeHands, rangeSummary, presetHands,
   emptyStats, addResult, accuracy, formatPct,
 } from "./trainer-core.js";
 import { rangeGridHTML } from "./range-grid.js";
@@ -28,6 +29,9 @@ const state = {
   answer: null,              // { action, verdict }
   stats: emptyStats(),
   showRange: false,
+  // deal range per scenario: null = every hand, else a Set of hand classes
+  ranges: { RFI: null, VS_UTG: null },
+  showPick: false,
 };
 
 let showView = () => {};
@@ -45,6 +49,14 @@ function loadPrefs() {
     if (Object.hasOwn(SCENARIOS, p.scenario)) state.scenario = p.scenario;
     if (typeof p.positionChoice === "string") state.positionChoice = p.positionChoice;
     if (typeof p.showRange === "boolean") state.showRange = p.showRange;
+    if (p.ranges && typeof p.ranges === "object") {
+      for (const sc of Object.keys(SCENARIOS)) {
+        const v = Object.hasOwn(p.ranges, sc) ? p.ranges[sc] : null;
+        const set = Array.isArray(v) ? new Set(normalizeHands(v)) : null;
+        state.ranges[sc] = set && set.size < ALL_HANDS.length ? set : null;   // a full set is "no filter"
+      }
+    }
+    // showPick is deliberately not restored: the editor always starts collapsed.
   } catch { /* corrupt prefs: fall back to defaults */ }
   state.positionChoice = normalizeChoice(state.scenario, state.positionChoice);
 }
@@ -55,6 +67,7 @@ function savePrefs() {
       scenario: state.scenario,
       positionChoice: state.positionChoice,
       showRange: state.showRange,
+      ranges: Object.fromEntries(Object.keys(SCENARIOS).map((sc) => [sc, state.ranges[sc] ? [...state.ranges[sc]] : null])),
     }));
   } catch { /* prefs are a convenience only */ }
 }
@@ -106,6 +119,8 @@ export function setupTrainer(opts = {}) {
     renderStats();
   });
 
+  setupPicker();
+
   document.addEventListener("keydown", onKey);
 
   // Table geometry and the chip row differ between phone and desktop; redraw when crossing.
@@ -131,15 +146,17 @@ export function enterTrainer() {
 
 // ───────────────────────── hand flow ─────────────────────────
 
-function deal() {
+function deal({ keepScroll = false } = {}) {
   state.position = pickPosition(state.scenario, state.positionChoice);
-  state.deal = dealCombo();
+  const hands = activeHands();
+  state.deal = hands ? dealFromHands([...hands]) : dealCombo();
   state.strategy = strategyFor(state.scenario, state.position, state.deal.hand);
   state.answer = null;
   renderAll();
   // Phone: "next hand" lives in the bottom dock; if the page was scrolled
-  // down (reading the range), bring the new cards back into view.
-  if (compactMQ.matches && window.scrollY > 0) window.scrollTo({ top: 0, behavior: "smooth" });
+  // down (reading the range), bring the new cards back into view — unless
+  // the caller is the range editor, where the user is busy further down.
+  if (!keepScroll && compactMQ.matches && window.scrollY > 0) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function answer(action) {
@@ -187,6 +204,8 @@ function renderAll() {
   renderResult();
   renderStats();
   renderRange();
+  renderPick();
+  renderBadge();
 }
 
 let chipsBuiltFor = null;   // scenario whose position chips are in the DOM
@@ -333,6 +352,132 @@ function renderStats() {
   $("#trainer-accuracy").textContent = acc == null
     ? "还没作答"
     : `正确率 ${Math.round(acc * 100)}% · 最优率 ${Math.round((st.best / st.hands) * 100)}%`;
+}
+
+// ───────────────────────── deal-range picker ─────────────────────────
+
+function activeHands() {
+  return state.ranges[state.scenario];   // null = every hand
+}
+
+function setHands(set) {
+  state.ranges[state.scenario] = set.size === ALL_HANDS.length ? null : set;
+  savePrefs();
+  // The hand on the table was dealt under the old range; if it has not been
+  // answered yet, swap it for one from the new range so the badge and the
+  // cards agree. An answered hand stays until "next" (the user is reading it).
+  if (!state.answer) deal({ keepScroll: true });
+  else { renderPick(); renderBadge(); }
+}
+
+function renderBadge() {
+  const badge = $("#trainer-range-badge");
+  const hands = activeHands();
+  if (!hands) { badge.classList.add("hidden"); return; }
+  const s = rangeSummary([...hands]);
+  badge.textContent = hands.size ? `🎯 范围 ${s.hands} 手 · ${formatPct(s.pct)}` : "🎯 范围为空 · 发全部";
+  badge.classList.remove("hidden");
+}
+
+let paint = null;        // { id, on, set, last } while a pointer is painting the grid
+let pickRendered = "";   // memo key of the last grid render (skip identical rebuilds)
+
+function renderPick() {
+  if (paint) return;     // never rebuild the grid under a finger mid-paint
+  const hands = activeHands();
+  const s = rangeSummary(hands ? [...hands] : ALL_HANDS);
+  $("#trainer-pick-summary").textContent = !hands
+    ? "全部 169 手"
+    : hands.size ? `已选 ${s.hands} 手 · ${s.combos} 组合 · ${formatPct(s.pct)}` : "未选任何手牌 · 发全部";
+  $("#trainer-pick-toggle").textContent = state.showPick ? "收起" : "编辑";
+  const box = $("#trainer-pick");
+  box.classList.toggle("hidden", !state.showPick);
+  if (!state.showPick) { pickRendered = ""; return; }
+  const pos = POSITION_LABEL[state.position];
+  const key = `${state.scenario}|${state.position}|${hands ? [...hands].join(",") : "all"}`;
+  if (key === pickRendered) return;
+  pickRendered = key;
+  // "playable"/"mixed" are computed for the position on the table right now;
+  // say so on the buttons (matters when the position is random).
+  $('#trainer-pick-presets [data-preset="playable"]').textContent = `${pos} 可玩手`;
+  $('#trainer-pick-presets [data-preset="mixed"]').textContent = `${pos} 混合手`;
+  $("#trainer-pick-pos").textContent = `颜色 = ${SCENARIOS[state.scenario].label} · ${pos} 的策略`;
+  $("#trainer-pick-grid").innerHTML = rangeGridHTML(state.scenario, state.position, {
+    selected: hands || new Set(ALL_HANDS), selectable: true,
+  });
+}
+
+// Tap toggles a hand; press-and-drag paints the first cell's new state over
+// every cell crossed (pointer capture + elementFromPoint so it works for
+// mouse and touch alike). One pointer at a time; committed on release — also
+// on cancel / lost capture, so what is on screen is what gets saved.
+function setupPicker() {
+  const grid = $("#trainer-pick-grid");
+  const cellAt = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    return el && el.closest(".range-cell[data-hand]");
+  };
+  const applyPaint = (cell) => {
+    const h = cell.dataset.hand;
+    if (paint.on) paint.set.add(h); else paint.set.delete(h);
+    cell.classList.toggle("off", !paint.on);
+  };
+  // A fast swipe delivers pointermove events several cells apart (and the
+  // browser coalesces touch moves), so walk the segment from the previous
+  // point in ~8px steps and paint every cell on the way.
+  const paintTo = (x, y) => {
+    const [x0, y0] = paint.last || [x, y];
+    const steps = Math.max(1, Math.ceil(Math.hypot(x - x0, y - y0) / 8));
+    for (let i = 1; i <= steps; i++) {
+      const cell = cellAt(x0 + (x - x0) * i / steps, y0 + (y - y0) * i / steps);
+      if (cell) applyPaint(cell);
+    }
+    paint.last = [x, y];
+  };
+  grid.addEventListener("pointerdown", (e) => {
+    if (paint || e.button !== 0) return;          // one pointer at a time, primary button only
+    const cell = e.target.closest(".range-cell[data-hand]");
+    if (!cell) return;
+    e.preventDefault();
+    try { grid.setPointerCapture(e.pointerId); } catch { /* not all inputs support capture */ }
+    const cur = activeHands() || new Set(ALL_HANDS);
+    paint = { id: e.pointerId, on: !cur.has(cell.dataset.hand), set: new Set(cur), last: [e.clientX, e.clientY] };
+    applyPaint(cell);
+  });
+  const endPaint = (e) => {
+    if (!paint || (e && e.pointerId !== undefined && e.pointerId !== paint.id)) return;
+    const set = paint.set;
+    paint = null;
+    setHands(set);
+  };
+  grid.addEventListener("pointermove", (e) => {
+    if (!paint || e.pointerId !== paint.id) return;
+    // the button was released but the up event never reached us (context
+    // menu, alt-tab): finish instead of painting on hover
+    if (e.pointerType !== "touch" && e.buttons === 0) { endPaint(e); return; }
+    const points = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    if (points.length) for (const p of points) paintTo(p.clientX, p.clientY);
+    else paintTo(e.clientX, e.clientY);
+  });
+  grid.addEventListener("pointerup", endPaint);
+  grid.addEventListener("pointercancel", endPaint);
+  grid.addEventListener("lostpointercapture", endPaint);
+
+  $("#trainer-pick-toggle").addEventListener("click", () => {
+    state.showPick = !state.showPick;
+    renderPick();
+  });
+  $("#trainer-pick-presets").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-preset]");
+    if (!btn) return;
+    const kind = btn.dataset.preset;
+    const cur = activeHands() || new Set(ALL_HANDS);
+    let next;
+    if (kind === "invert") next = new Set(ALL_HANDS.filter((h) => !cur.has(h)));
+    else if (kind === "clear") next = new Set();
+    else next = new Set(presetHands(kind, state.scenario, state.position));
+    setHands(next);
+  });
 }
 
 function renderRange() {

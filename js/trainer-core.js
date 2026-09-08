@@ -10,7 +10,7 @@
 //   VS_UTG: raise = 3-bet, call = flat, fold
 
 import {
-  RANKS, RFI, VS_UTG, POSITIONS_RFI, POSITIONS_VS_UTG, POSITION_LABEL,
+  RANKS, RFI, VS_UTG, POSITIONS_RFI, POSITIONS_VS_UTG, POSITION_LABEL, handAt,
 } from "./ranges.js";
 
 export const SUITS = ["s", "h", "d", "c"];
@@ -56,6 +56,83 @@ export function dealCombo(rng = Math.random) {
   const cards = [cardFromIndex(a), cardFromIndex(b)];
   cards.sort((x, y) => RANK_IDX[x.rank] - RANK_IDX[y.rank]);   // high card first
   return { cards, hand: classify(cards[0], cards[1]) };
+}
+
+// ─────────────────────────── deal range (which hands to practise) ───────────────────────────
+
+// The 169 hand classes in matrix order (row-major, same as the 13×13 grid).
+export const ALL_HANDS = (() => {
+  const out = [];
+  for (let r = 0; r < 13; r++) for (let c = 0; c < 13; c++) out.push(handAt(r, c));
+  return out;
+})();
+const HAND_SET = new Set(ALL_HANDS);
+
+export function comboCount(hand) {
+  return hand.length === 2 ? 6 : hand.endsWith("s") ? 4 : 12;
+}
+
+// Keep only real hand classes, de-duplicated, in matrix order.
+export function normalizeHands(list) {
+  const set = new Set((Array.isArray(list) ? list : []).filter((h) => typeof h === "string" && HAND_SET.has(h)));
+  return ALL_HANDS.filter((h) => set.has(h));
+}
+
+// Random concrete cards for a hand class (uniform over that class's combos).
+export function cardsForHand(hand, rng = Math.random) {
+  const [r1, r2] = [hand[0], hand[1]];
+  const a = Math.floor(rng() * 4);
+  if (hand.length === 3 && hand[2] === "s") {
+    return [{ rank: r1, suit: SUITS[a] }, { rank: r2, suit: SUITS[a] }];
+  }
+  let b = Math.floor(rng() * 3);           // a different suit: pairs need it, offsuit by definition
+  if (b >= a) b += 1;
+  return [{ rank: r1, suit: SUITS[a] }, { rank: r2, suit: SUITS[b] }];
+}
+
+// Deal uniformly over the combos of the selected classes (a pair weighs 6,
+// suited 4, offsuit 12), so a filtered drill keeps real-life proportions
+// inside the filter. Empty / all-invalid selection → full deck.
+export function dealFromHands(hands, rng = Math.random) {
+  const list = normalizeHands(hands);
+  if (!list.length) return dealCombo(rng);
+  const total = list.reduce((s, h) => s + comboCount(h), 0);
+  let t = rng() * total;
+  let pick = list[list.length - 1];
+  for (const h of list) {
+    t -= comboCount(h);
+    if (t < 0) { pick = h; break; }
+  }
+  return { cards: cardsForHand(pick, rng), hand: pick };
+}
+
+export function rangeSummary(hands) {
+  const list = normalizeHands(hands);
+  const combos = list.reduce((s, h) => s + comboCount(h), 0);
+  return { hands: list.length, combos, pct: combos / 1326 };
+}
+
+// Quick selections for the picker. "playable"/"mixed" depend on the spot
+// (scenario + position must be a valid chart): playable = the chart takes
+// raise or call at all; mixed = no action is (near-)pure, i.e. the spot has
+// a real frequency decision. Unknown kinds throw rather than silently
+// meaning "all".
+export function presetHands(kind, scenario, position) {
+  switch (kind) {
+    case "all":     return [...ALL_HANDS];
+    case "pairs":   return ALL_HANDS.filter((h) => h.length === 2);
+    case "suited":  return ALL_HANDS.filter((h) => h.endsWith("s"));
+    case "offsuit": return ALL_HANDS.filter((h) => h.endsWith("o"));
+    case "playable": return ALL_HANDS.filter((h) => {
+      const s = strategyFor(scenario, position, h);
+      return s.raise + s.call >= NEVER_EPS;
+    });
+    case "mixed": return ALL_HANDS.filter((h) => {
+      const s = strategyFor(scenario, position, h);
+      return Math.max(s.raise, s.call, s.fold) < 0.995;
+    });
+    default: throw new Error(`unknown preset ${kind}`);
+  }
 }
 
 // ─────────────────────────── strategy lookup ───────────────────────────

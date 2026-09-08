@@ -8,9 +8,10 @@ import {
   cardFromIndex, classify, dealCombo, strategyFor, topActions, nonZeroActions,
   judge, actionsFor, normalizeChoice, pickPosition, potBefore, situationText,
   seatStates, TABLE_GEOMETRY, tableLayout, emptyStats, addResult, accuracy, formatPct,
+  ALL_HANDS, comboCount, cardsForHand, dealFromHands, normalizeHands, rangeSummary, presetHands,
 } from "../js/trainer-core.js";
 import { rangeGridHTML } from "../js/range-grid.js";
-import { RANKS } from "../js/ranges.js";
+import { RANKS, RFI } from "../js/ranges.js";
 import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
@@ -76,6 +77,86 @@ console.log("dealCombo");
   const seq = [51 / 52 + 1e-9, 50 / 51 + 1e-9];
   const rng = () => seq.shift() ?? 0;
   eq("index bump upper edge (a=51, b=50) → 22", dealCombo(rng).hand, "22");
+}
+
+// ───────── deal range: filtered dealing stays uniform over combos inside the filter ─────────
+console.log("deal range");
+eq("ALL_HANDS has the 169 classes in matrix order", [ALL_HANDS.length, ALL_HANDS[0], ALL_HANDS[1], ALL_HANDS[13], ALL_HANDS[168]], [169, "AA", "AKs", "AKo", "22"]);
+eq("comboCount pair/suited/offsuit", [comboCount("AA"), comboCount("AKs"), comboCount("AKo")], [6, 4, 12]);
+eq("normalizeHands dedupes, drops junk, keeps matrix order", normalizeHands(["72o", "AA", "AA", "xx", 5, "AKs"]), ["AA", "AKs", "72o"]);
+{
+  let bad = 0;
+  for (let i = 0; i < 2000; i++) {
+    for (const h of ["AA", "AKs", "AKo", "72o", "33", "T9s"]) {
+      const c = cardsForHand(h);
+      if (classify(c[0], c[1]) !== h) bad++;
+      if (c[0].rank === c[1].rank && c[0].suit === c[1].suit) bad++;
+      if (h.endsWith("s") && c[0].suit !== c[1].suit) bad++;
+    }
+  }
+  eq("cardsForHand always yields the requested class with two distinct cards", bad, 0);
+}
+{
+  const N = 22000, cnt = { AA: 0, AKs: 0, AKo: 0 };
+  let outside = 0;
+  for (let i = 0; i < N; i++) {
+    const d = dealFromHands(["AA", "AKs", "AKo"]);
+    if (cnt[d.hand] === undefined) outside++; else cnt[d.hand]++;
+  }
+  eq("dealFromHands never deals outside the selection", outside, 0);
+  approx("weights: AA ≈ 6/22", cnt.AA / N, 6 / 22, 0.012);
+  approx("weights: AKs ≈ 4/22", cnt.AKs / N, 4 / 22, 0.012);
+  approx("weights: AKo ≈ 12/22", cnt.AKo / N, 12 / 22, 0.015);
+}
+{
+  const N = 26520;
+  let pairs = 0, suited = 0;
+  for (let i = 0; i < N; i++) { const d = dealFromHands(ALL_HANDS); if (d.hand.length === 2) pairs++; else if (d.hand.endsWith("s")) suited++; }
+  approx("dealFromHands(all) pairs ≈ 78/1326 (same as an unfiltered deal)", pairs / N, 78 / 1326, 0.006);
+  approx("dealFromHands(all) suited ≈ 312/1326", suited / N, 312 / 1326, 0.01);
+}
+{
+  // empty selection must take exactly the unfiltered path: same rng sequence → same deal
+  const seq = () => { const v = [0.31, 0.77, 0.05, 0.5]; return () => v.shift() ?? 0.5; };
+  eq("dealFromHands([]) falls back to a full deal (identical to dealCombo on the same rng)", dealFromHands([], seq()), dealCombo(seq()));
+}
+eq("dealFromHands ignores unknown classes", dealFromHands(["ZZ", "AA"]).hand, "AA");
+eq("normalizeHands tolerates junk input (null/undefined/string/number/object)", [null, undefined, "AA", 42, {}].map((v) => normalizeHands(v).length), [0, 0, 0, 0, 0]);
+{
+  // within a class every concrete combo is reachable and roughly equally likely
+  let bad = [];
+  for (const h of ["AA", "AKs", "AKo"]) {
+    const m = new Map();
+    const N = 6000;
+    for (let i = 0; i < N; i++) { const c = cardsForHand(h); const k = c.map((x) => x.rank + x.suit).sort().join(""); m.set(k, (m.get(k) || 0) + 1); }
+    if (m.size !== comboCount(h)) bad.push(`${h}: ${m.size} distinct combos, want ${comboCount(h)}`);
+    if (Math.min(...m.values()) < 0.7 * (N / comboCount(h))) bad.push(`${h}: min count ${Math.min(...m.values())} too low`);
+  }
+  eq("cardsForHand reaches every combo of the class about equally often", bad, []);
+}
+{
+  let threw = false;
+  try { presetHands("nope"); } catch { threw = true; }
+  check("presetHands throws on an unknown kind (typo in data-preset cannot silently mean 'all')", threw);
+}
+eq("rangeSummary(pairs) = 13 hands / 78 combos", rangeSummary(presetHands("pairs")), { hands: 13, combos: 78, pct: 78 / 1326 });
+eq("preset sizes all/pairs/suited/offsuit", ["all", "pairs", "suited", "offsuit"].map((k) => presetHands(k).length), [169, 13, 78, 78]);
+{
+  const playable = presetHands("playable", "RFI", "UTG");
+  const mixed = presetHands("mixed", "RFI", "UTG");
+  const raw = Object.entries(RFI.UTG);
+  eq("playable(RFI,UTG) = chart entries with any raise/call", playable.length, raw.filter(([, [r, c]]) => r + c >= 0.0005).length);
+  eq("mixed(RFI,UTG) = chart entries where no action ≥ 99.5%", mixed.length, raw.filter(([, [r, c]]) => Math.max(r, c, 1 - r - c) < 0.995).length);
+  check("mixed ⊂ playable", mixed.every((h) => playable.includes(h)));
+  check("playable(RFI,UTG) excludes a pure fold (72o) and includes a pure open (AA)", !playable.includes("72o") && playable.includes("AA"));
+  check("mixed(RFI,UTG) excludes AA (pure) and includes 44 (35.5%)", !mixed.includes("AA") && mixed.includes("44"));
+}
+{
+  const sel = rangeGridHTML("RFI", "UTG", { selected: new Set(["AA"]), selectable: true });
+  eq("selectable grid: 169 data-hand attributes", (sel.match(/ data-hand="/g) || []).length, 169);
+  eq("selected AA only → 168 cells off", (sel.match(/range-cell off/g) || []).length, 168);
+  check("AA cell is on", /class="range-cell" data-hand="AA"/.test(sel));
+  eq("default grid output has no data-hand / off (golden output unchanged)", [(rangeGridHTML("RFI", "UTG").match(/data-hand|off/g) || []).length], [0]);
 }
 
 // ───────── strategyFor (spot checks against ranges.js) ─────────
