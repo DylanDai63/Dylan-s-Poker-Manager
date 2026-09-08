@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=21" />
+  <link rel="stylesheet" href="css/styles.css?v=22" />
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -243,10 +243,13 @@
         </div>
         <div class="tr-hand-row"><span class="tr-hand-label" id="trainer-hand-label">--</span></div>
 
-        <div class="tr-actions" id="trainer-actions"><!-- filled by JS --></div>
-        <div class="tr-result" id="trainer-result"></div>
-        <button type="button" id="trainer-next" class="primary big hidden">下一手 →</button>
-        <div class="tr-keys">快捷键:F / C / R(或 1 / 2 / 3)作答 · Space / Enter 下一手</div>
+        <!-- action dock: in-flow on desktop, pinned to the bottom (thumb zone) on phones -->
+        <div class="tr-dock" id="trainer-dock">
+          <div class="tr-actions" id="trainer-actions"><!-- filled by JS --></div>
+          <div class="tr-result" id="trainer-result"></div>
+          <button type="button" id="trainer-next" class="primary big hidden">下一手 →</button>
+          <div class="tr-keys">快捷键:F / C / R(或 1 / 2 / 3)作答 · Space / Enter 下一手</div>
+        </div>
       </div>
 
       <aside class="tr-side">
@@ -328,6 +331,6 @@
     </form>
   </section>
 
-  <script type="module" src="js/app.js?v=21"></script>
+  <script type="module" src="js/app.js?v=22"></script>
 </body>
 </html>

@@ -32,6 +32,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 function showView(id) {
   $$(".view").forEach((v) => v.classList.add("hidden"));
   $(`#${id}`).classList.remove("hidden");
+  window.scrollTo(0, 0);   // every view opens at its top
   if (id === "view-home") updateActiveBanner();
 }
 

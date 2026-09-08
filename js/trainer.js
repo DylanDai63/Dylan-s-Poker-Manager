@@ -8,7 +8,8 @@ import { POSITION_LABEL } from "./ranges.js";
 import {
   SCENARIOS, RANDOM_POSITION, SUIT_GLYPH, MARK,
   dealCombo, strategyFor, judge, topActions, nonZeroActions, actionsFor,
-  normalizeChoice, pickPosition, potBefore, situationText, seatStates,
+  normalizeChoice, pickPosition, potBefore, situationText,
+  TABLE_GEOMETRY, tableLayout,
   emptyStats, addResult, accuracy, formatPct,
 } from "./trainer-core.js";
 import { rangeGridHTML } from "./range-grid.js";
@@ -31,6 +32,10 @@ const state = {
 
 let showView = () => {};
 let onClose = () => {};
+
+// Phone layout (≤600px): taller felt, bigger seats, action dock pinned to
+// the bottom. Must agree with the @media block in styles.css.
+const compactMQ = window.matchMedia("(max-width: 600px)");
 
 // ───────────────────────── prefs ─────────────────────────
 
@@ -102,11 +107,24 @@ export function setupTrainer(opts = {}) {
   });
 
   document.addEventListener("keydown", onKey);
+
+  // Table geometry and the chip row differ between phone and desktop; redraw when crossing.
+  compactMQ.addEventListener("change", () => { if (state.deal) { renderTable(); renderChips(); } });
+
+  // On phones the dock is position:fixed; publish its height so the page
+  // can pad its bottom and nothing hides behind the dock.
+  const dock = $("#trainer-dock");
+  const view = $("#view-trainer");
+  if (window.ResizeObserver && dock && view) {
+    new ResizeObserver(() => {
+      view.style.setProperty("--dock-h", `${Math.ceil(dock.getBoundingClientRect().height)}px`);
+    }).observe(dock);
+  }
 }
 
 export function enterTrainer() {
   showView("view-trainer");
-  renderChips();
+  renderChips(true);
   if (!state.deal) deal();
   else renderAll();
 }
@@ -119,6 +137,9 @@ function deal() {
   state.strategy = strategyFor(state.scenario, state.position, state.deal.hand);
   state.answer = null;
   renderAll();
+  // Phone: "next hand" lives in the bottom dock; if the page was scrolled
+  // down (reading the range), bring the new cards back into view.
+  if (compactMQ.matches && window.scrollY > 0) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function answer(action) {
@@ -170,7 +191,7 @@ function renderAll() {
 
 let chipsBuiltFor = null;   // scenario whose position chips are in the DOM
 
-function renderChips() {
+function renderChips(instant = false) {
   $$("#trainer-scenario-chips .chip").forEach((c) => {
     c.classList.toggle("selected", c.dataset.scenario === state.scenario);
   });
@@ -188,6 +209,17 @@ function renderChips() {
   $$("#trainer-position-chips .chip").forEach((c) => {
     c.classList.toggle("selected", c.dataset.pos === state.positionChoice);
   });
+  // Phone: the row scrolls horizontally — keep the selected chip centred.
+  // Measured relative to the row itself (not offsetParent), so it holds
+  // whatever the page margins are.
+  if (root.scrollWidth > root.clientWidth + 1) {
+    const sel = root.querySelector(".chip.selected");
+    if (sel) {
+      const rowBox = root.getBoundingClientRect(), selBox = sel.getBoundingClientRect();
+      const left = root.scrollLeft + (selBox.left - rowBox.left) - (rowBox.width - selBox.width) / 2;
+      root.scrollTo({ left: Math.max(0, left), behavior: instant ? "auto" : "smooth" });
+    }
+  }
 }
 
 function renderSituation() {
@@ -197,41 +229,33 @@ function renderSituation() {
 // Table drawn as SVG: 8 seats on an ellipse, rotated so hero sits at the
 // bottom (GTO Wizard convention). Folded seats are dimmed, the UTG raiser
 // gets a 2bb chip, BTN gets the dealer button.
+// Draws whatever tableLayout() (trainer-core.js) computed for this spot; the
+// geometry table and the collision test live there.
 function renderTable() {
-  const seats = seatStates(state.scenario, state.position);
-  const heroIdx = seats.findIndex((s) => s.role === "hero");
-  const cx = 320, cy = 160, rx = 262, ry = 118;
-  // Hero cards are an HTML overlay centred on the felt (roughly x 240..400,
-  // y 105..215 in these units), so everything drawn inside the felt keeps
-  // clear of that box: pot label below the cards, raiser chip text on the
-  // outer side, dealer button offset sideways from the seat.
+  const g = compactMQ.matches ? TABLE_GEOMETRY.phone : TABLE_GEOMETRY.desktop;
+  const L = tableLayout(state.scenario, state.position, g);
+  const f = (n) => n.toFixed(1);
   const parts = [
-    `<ellipse class="tr-rail" cx="${cx}" cy="${cy}" rx="250" ry="106"/>`,
-    `<ellipse class="tr-felt" cx="${cx}" cy="${cy}" rx="236" ry="92"/>`,
-    `<text class="tr-pot" x="${cx}" y="${cy + 86}">Pot ${potBefore(state.scenario)}bb</text>`,
+    `<ellipse class="tr-rail" cx="${g.cx}" cy="${g.cy}" rx="${g.rail[0]}" ry="${g.rail[1]}"/>`,
+    `<ellipse class="tr-felt" cx="${g.cx}" cy="${g.cy}" rx="${g.felt[0]}" ry="${g.felt[1]}"/>`,
+    `<text class="tr-pot" x="${f(L.pot.x)}" y="${f(L.pot.y)}">Pot ${potBefore(state.scenario)}bb</text>`,
   ];
-  seats.forEach((s, i) => {
-    const ang = Math.PI / 2 + (i - heroIdx) * (Math.PI / 4);
-    const cos = Math.cos(ang), sin = Math.sin(ang);
-    const x = (cx + rx * cos).toFixed(1), y = (cy + ry * sin).toFixed(1);
+  for (const s of L.seats) {
     const label = POSITION_LABEL[s.pos];
     const small = label.length > 3 ? ' class="small"' : "";
-    parts.push(
-      `<g class="tr-seat ${s.role}" transform="translate(${x},${y})"><circle r="24"/><text${small}>${label}</text></g>`
-    );
-    if (s.role === "raiser") {
-      const ix = (cx + rx * 0.62 * cos).toFixed(1), iy = (cy + ry * 0.56 * sin).toFixed(1);
-      const left = cos < -0.3;   // seat on the left half → label on the left of the chip
-      const tx = left ? -13 : 13, anchor = left ? "end" : "start";
-      parts.push(`<g class="tr-chip" transform="translate(${ix},${iy})"><circle r="9"/><text x="${tx}" text-anchor="${anchor}">2bb</text></g>`);
-    }
-    if (s.pos === "BTN") {
-      const a2 = ang + 0.38;   // sideways from the seat so it never sits under a chip or the cards
-      const dx = (cx + rx * 0.84 * Math.cos(a2)).toFixed(1), dy = (cy + ry * 0.84 * Math.sin(a2)).toFixed(1);
-      parts.push(`<g class="tr-dealer" transform="translate(${dx},${dy})"><circle r="10"/><text>D</text></g>`);
-    }
-  });
-  $("#trainer-table-svg").innerHTML = parts.join("");
+    parts.push(`<g class="tr-seat ${s.role}" transform="translate(${f(s.x)},${f(s.y)})"><circle r="${s.r}"/><text${small}>${label}</text></g>`);
+  }
+  if (L.chip) {
+    const { x, y, r, label } = L.chip;
+    parts.push(`<g class="tr-chip" transform="translate(${f(x)},${f(y)})"><circle r="${r}"/><text x="${label.dx}" y="${label.dy}" text-anchor="${label.anchor}">2bb</text></g>`);
+  }
+  if (L.dealer) {
+    parts.push(`<g class="tr-dealer" transform="translate(${f(L.dealer.x)},${f(L.dealer.y)})"><circle r="${L.dealer.r}"/><text>D</text></g>`);
+  }
+  const svg = $("#trainer-table-svg");
+  svg.setAttribute("viewBox", `0 0 ${g.vb[0]} ${g.vb[1]}`);
+  svg.classList.toggle("compact", g.compact);
+  svg.innerHTML = parts.join("");
 }
 
 function renderCards() {

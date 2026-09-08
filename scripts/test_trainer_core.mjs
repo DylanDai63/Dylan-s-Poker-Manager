@@ -7,10 +7,11 @@ import {
   SUITS, SEAT_ORDER, RANDOM_POSITION, SCENARIOS, ACTION_KEYS,
   cardFromIndex, classify, dealCombo, strategyFor, topActions, nonZeroActions,
   judge, actionsFor, normalizeChoice, pickPosition, potBefore, situationText,
-  seatStates, emptyStats, addResult, accuracy, formatPct,
+  seatStates, TABLE_GEOMETRY, tableLayout, emptyStats, addResult, accuracy, formatPct,
 } from "../js/trainer-core.js";
 import { rangeGridHTML } from "../js/range-grid.js";
 import { RANKS } from "../js/ranges.js";
+import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = "") {
@@ -197,6 +198,92 @@ eq("VS_UTG hero UTG1: UTG raiser, rest pending",
 check("situationText RFI mentions position", situationText("RFI", "BTN").includes("BTN"));
 check("situationText SB mentions limp", situationText("RFI", "SB").includes("limp"));
 check("situationText VS_UTG mentions UTG open", situationText("VS_UTG", "CO").includes("UTG") && situationText("VS_UTG", "CO").includes("CO"));
+
+// ───────── table layout: nothing may overlap, on either geometry, for any hero seat ─────────
+console.log("table layout");
+{
+  // signed clearance helpers (≥ 0 = no overlap), all in viewBox units
+  const circleRect = (c, r) => {
+    const dx = Math.max(r.x - c.x, 0, c.x - (r.x + r.w));
+    const dy = Math.max(r.y - c.y, 0, c.y - (r.y + r.h));
+    return Math.hypot(dx, dy) - c.r;
+  };
+  const circles = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - a.r - b.r;
+  const rects = (a, b) => Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w), a.y - (b.y + b.h), b.y - (a.y + a.h));
+  // text boxes: "2bb" ≈ 1.9em wide, 1em tall (dominant-baseline central);
+  // "Pot 3.5bb" ≈ 4.4em wide, baseline-anchored (0.8em above, 0.25em below)
+  const chipLabelBox = (chip, font) => {
+    const w = font * 1.9, cx = chip.x + chip.label.dx, cy = chip.y + chip.label.dy;
+    const x = chip.label.anchor === "start" ? cx : chip.label.anchor === "end" ? cx - w : cx - w / 2;
+    return { x, y: cy - font / 2, w, h: font };
+  };
+  const potBox = (pot, font) => ({ x: pot.x - font * 2.2, y: pot.y - font * 0.8, w: font * 4.4, h: font * 1.05 });
+
+  const bad = [];
+  let spots = 0;
+  for (const [name, g] of Object.entries(TABLE_GEOMETRY)) {
+    for (const scenario of Object.keys(SCENARIOS)) {
+      for (const hero of SCENARIOS[scenario].positions) {
+        spots++;
+        const L = tableLayout(scenario, hero, g);
+        const tag = `${name}/${scenario}/${hero}`;
+        const pb = potBox(L.pot, g.potFont);
+        if (rects(pb, L.cards) < 0) bad.push(`${tag}: pot text overlaps cards`);
+        for (const s of L.seats) {
+          if (circleRect(s, L.cards) < 0) bad.push(`${tag}: seat ${s.pos} overlaps cards`);
+          if (circleRect(s, pb) < 0) bad.push(`${tag}: pot text overlaps seat ${s.pos}`);
+        }
+        if (scenario === "VS_UTG") {
+          check(`${tag}: has a raiser chip`, !!L.chip);
+          const lb = chipLabelBox(L.chip, g.chipFont);
+          if (circleRect(L.chip, L.cards) < 0) bad.push(`${tag}: chip overlaps cards`);
+          if (rects(lb, L.cards) < 0) bad.push(`${tag}: chip label overlaps cards`);
+          if (rects(lb, pb) < 0) bad.push(`${tag}: chip label overlaps pot text`);
+          for (const s of L.seats) {
+            if (circles(s, L.chip) < 0) bad.push(`${tag}: chip overlaps seat ${s.pos}`);
+            if (circleRect(s, lb) < 0) bad.push(`${tag}: chip label overlaps seat ${s.pos}`);
+          }
+        } else if (L.chip) bad.push(`${tag}: RFI must not draw a raiser chip`);
+        check(`${tag}: has a dealer button`, !!L.dealer);
+        if (circleRect(L.dealer, L.cards) < 0) bad.push(`${tag}: dealer overlaps cards`);
+        if (circleRect(L.dealer, pb) < 0) bad.push(`${tag}: dealer overlaps pot text`);
+        for (const s of L.seats) if (circles(s, L.dealer) < 0) bad.push(`${tag}: dealer overlaps seat ${s.pos}`);
+        if (L.chip) {
+          if (circles(L.chip, L.dealer) < 0) bad.push(`${tag}: dealer overlaps chip`);
+          if (circleRect(L.dealer, chipLabelBox(L.chip, g.chipFont)) < 0) bad.push(`${tag}: dealer overlaps chip label`);
+        }
+        // hero sits at the bottom centre, every seat inside the viewBox
+        const heroSeat = L.seats.find((s) => s.role === "hero");
+        if (Math.abs(heroSeat.x - g.cx) > 0.01 || heroSeat.y <= g.cy) bad.push(`${tag}: hero not at bottom centre`);
+        for (const s of L.seats) if (s.x - s.r < 0 || s.x + s.r > g.vb[0] || s.y - s.r < 0 || s.y + s.r > g.vb[1]) bad.push(`${tag}: seat ${s.pos} outside viewBox`);
+      }
+    }
+  }
+  eq(`no overlaps across ${spots} spots (2 geometries × 2 scenarios × 7 hero seats)`, bad, []);
+  const sbPhone = tableLayout("VS_UTG", "SB", TABLE_GEOMETRY.phone);
+  eq("phone VS_UTG hero SB: UTG is straight left → chip label goes under the chip", sbPhone.chip.label.anchor, "middle");
+  const bbPhone = tableLayout("VS_UTG", "BB", TABLE_GEOMETRY.phone);
+  eq("phone VS_UTG hero BB: UTG bottom-left → chip label on the left", bbPhone.chip.label.anchor, "end");
+  const sbDesk = tableLayout("VS_UTG", "SB", TABLE_GEOMETRY.desktop);
+  eq("desktop VS_UTG hero SB: label stays beside the chip (desktop layout unchanged)", sbDesk.chip.label.anchor, "end");
+  eq("desktop viewBox 640×320, phone 640×400", [TABLE_GEOMETRY.desktop.vb, TABLE_GEOMETRY.phone.vb], [[640, 320], [640, 400]]);
+}
+
+// ───────── styles.css: the phone media block must come after every base rule it overrides ─────────
+console.log("styles.css source order");
+{
+  const css = readFileSync(new URL("../css/styles.css", import.meta.url), "utf8");
+  const phoneBlock = css.lastIndexOf("@media (max-width: 600px)");
+  check("phone media block exists exactly once", css.split("@media (max-width: 600px)").length === 2);
+  // base rules (top-level) that the phone block overrides at equal specificity
+  const overridden = [".tr-dock {", ".tr-actions {", ".tr-btn {", ".tr-mark {", ".tr-bar {", ".tr-bar .pct {", ".tr-result {", ".tr-stat .n {", ".tr-stat .l {", ".tr-accuracy {", ".tr-side {", ".tr-table {", ".tr-card {", ".tr-situation {"];
+  // top-level (unindented) occurrences only — the phone block's own indented copies don't count
+  const late = overridden.filter((sel) => css.lastIndexOf("\n" + sel) > phoneBlock);
+  check("guard sees the base rules it protects", overridden.every((sel) => css.indexOf("\n" + sel) >= 0));
+  eq("every base rule the phone block overrides is defined before it (equal specificity → source order wins)", late, []);
+  check("phone block is the last @media block in the file", css.indexOf("@media", phoneBlock + 1) === -1);
+  check("no top-level rule follows the phone block", !/\n[a-zA-Z.#][^\n{]*\{/.test(css.slice(phoneBlock)));
+}
 
 // ───────── stats ─────────
 console.log("stats");

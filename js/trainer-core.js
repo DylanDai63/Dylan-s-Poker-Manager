@@ -159,6 +159,65 @@ export function seatStates(scenario, hero) {
   });
 }
 
+// ─────────────────────────── table geometry (viewBox units) ───────────────────────────
+
+// Two geometries: desktop 640×320 (2:1) and phone 640×400 (8:5 — a taller
+// felt so the 8 seats spread out and stay legible at ~370px wide).
+// chipFont/potFont mirror the SVG font sizes in styles.css. cardsBox is the
+// HTML card overlay (centred on the felt) in viewBox units, sized for the
+// worst case each layout can reach, and the collision test uses it as the
+// keep-out: desktop = 960px window → 534px table with 76×106 cards; phone =
+// cards scale with the viewport below 390px (min(64px, 16.4vw), see
+// styles.css), which keeps the overlay ≤ 248×164 units for any width ≥ 320.
+export const TABLE_GEOMETRY = {
+  desktop: {
+    vb: [640, 320], cx: 320, cy: 160, rail: [250, 106], felt: [236, 92], rx: 262, ry: 118,
+    seatR: 24, chipR: 9, dealerR: 10, potDy: 86, chipFx: 0.62, chipFy: 0.68, chipTx: 13,
+    dealerF: 0.84, chipFont: 13, potFont: 14, cardsBox: [194, 127], compact: false,
+  },
+  phone: {
+    vb: [640, 400], cx: 320, cy: 200, rail: [250, 138], felt: [236, 124], rx: 262, ry: 156,
+    seatR: 31, chipR: 12, dealerR: 13, potDy: 108, chipFx: 0.74, chipFy: 0.62, chipTx: 16,
+    dealerF: 0.82, chipFont: 17, potFont: 19, cardsBox: [248, 164], compact: true,
+  },
+};
+
+// Where everything sits on the table for a spot: seats on an ellipse rotated
+// so hero is at the bottom, the raiser's 2bb chip pulled towards the centre
+// with its label on the outer side, the dealer button offset sideways from
+// BTN, the pot label under the cards. Pure, so the collision test can sweep
+// every hero seat.
+export function tableLayout(scenario, hero, g) {
+  const seats = seatStates(scenario, hero);
+  const heroIdx = seats.findIndex((s) => s.role === "hero");
+  const out = {
+    seats: [], chip: null, dealer: null,
+    pot: { x: g.cx, y: g.cy + g.potDy },
+    cards: { x: g.cx - g.cardsBox[0] / 2, y: g.cy - g.cardsBox[1] / 2, w: g.cardsBox[0], h: g.cardsBox[1] },
+  };
+  seats.forEach((s, i) => {
+    const ang = Math.PI / 2 + (i - heroIdx) * (Math.PI / 4);
+    const cos = Math.cos(ang), sin = Math.sin(ang);
+    out.seats.push({ pos: s.pos, role: s.role, x: g.cx + g.rx * cos, y: g.cy + g.ry * sin, r: g.seatR });
+    if (s.role === "raiser") {
+      const x = g.cx + g.rx * g.chipFx * cos, y = g.cy + g.ry * g.chipFy * sin;
+      // Label on the outer side of the chip. On the phone geometry a seat on
+      // the horizontal axis is right there on that side (bigger seats), so
+      // drop the label under the chip instead; desktop has room either way.
+      let label;
+      if (g.compact && Math.abs(cos) > 0.9) label = { dx: 0, dy: g.chipR + g.chipFont, anchor: "middle" };
+      else if (cos < -0.3)                  label = { dx: -g.chipTx, dy: 0, anchor: "end" };
+      else                                  label = { dx: g.chipTx, dy: 0, anchor: "start" };
+      out.chip = { x, y, r: g.chipR, label };
+    }
+    if (s.pos === "BTN") {
+      const a2 = ang + 0.38;   // sideways from the seat so it never sits under a chip or the cards
+      out.dealer = { x: g.cx + g.rx * g.dealerF * Math.cos(a2), y: g.cy + g.ry * g.dealerF * Math.sin(a2), r: g.dealerR };
+    }
+  });
+  return out;
+}
+
 // ─────────────────────────── session stats ───────────────────────────
 
 export function emptyStats() {
