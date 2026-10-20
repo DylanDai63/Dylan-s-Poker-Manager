@@ -211,3 +211,44 @@ alter table sessions disable row level security;
 | 折点交互 | 点击 circle → 下方显示 session card |
 | 数据缓存 | 一次 fetch 全部，切片用于"最近"列表 |
 | 累计起点 | 从 $0 起 (不要求初始 bankroll) |
+
+---
+
+## v4 计划（2026-10-20）— bankroll 管理重做
+
+### 起因
+- 几个月没用, Supabase 免费项目因「低活跃」被暂停 → 要一个不靠人记得打开 App 的保活。
+- 记账要分场地、线上按 bb 记、算 bb/100; 配色改成 GTO Wizard 风格。
+
+### v4-A. 保活
+- Supabase 官方: Free 项目「7 天低活跃」暂停, 「每天几次数据库请求」足以避免; 暂停后可 Resume, 数据不丢。
+- 方案: 本机 Windows 任务计划程序每天 09:30 跑 `scripts/keepalive.ps1`(POST `keepalive()` RPC, 只写 `keepalive_log`), 错过就开机补跑, 无驻留进程。
+- 否决: GitHub Actions 定时任务(public 仓 60 天无 commit 自动停用, 正撞「几个月不用」); cron-job.org(可用, 但要多开一个账号, 电脑常开时本机更简单); Cloudflare Worker(为一个 GET 多一层部署)。
+- App 设置页显示库里最近一次 ping, 超过 24 h 变红。
+
+### v4-B. 数据模型
+- 旧 `sessions` 表 drop(旧记录清空)。
+- `venues`(name, kind live/online)种 Wind Creek / Home game / Online poker, 可在 App 里加。
+- `stakes`(code, bb_usd)种 z2 / NL2 = 0.02, 升级别在设置里加一行, 不改代码。
+- `sessions`: 金额一律美元; 线上另存 `buy_in_bb / cash_out_bb / hands / stakes_id`, 保存时按级别换算美元。
+- 为什么存两份(美元 + bb): 账是钱, 级别以后改了也不能回头改历史金额; bb 是原始录入, 算 bb/100 用。
+
+### v4-C. 曲线
+- Chart.js 4.4.1(MIT, cdnjs 固定版本 + SRI)取代手写 SVG: 多线 + 图例 + tooltip 手写不值。
+- x 轴 = 所选场地的 session 按时间排, 每条场地线是累计盈亏, 在别人的 session 处**持平延续**, 这样每条线每个 x 都有值, 「合计」就是逐点相加。
+- 只选一个场地时不画合计(会和那条线完全重合)。
+
+### v4-D. 界面
+- 主题变量集中在 `styles.css` 顶部 `:root`: 黑 `#0f0f0f / #161618 / #202022`、白 `#fdfdfd`、灰 `#b3b3b8`、薄荷绿 `#aafbb2`(GTO Wizard Vuetify 主题的 primary)、Poppins。
+- 手机: PWA 不变; 桌面 ≥900px 两栏(左图表 + 列表, 右操作)。
+- 记账 / 编辑 / 计时结束 三种入口共用一个表单; 计时器、休息、翻前练习只换皮不改逻辑。
+- `?mock=1` 假数据模式: 看版式、离线演示。
+
+### v4 技术决策
+| 项 | 决策 |
+|---|---|
+| 保活周期 | 每天一次(官方说「每天几次」才稳; 电脑偶尔关机 + 错过补跑, 6 天一次太贴边) |
+| 图表库 | Chart.js 4.4.1 UMD, cdnjs + integrity |
+| 字体 | Google Fonts Poppins, 离线退回系统字体 |
+| 场地 / 级别 | 库表 + 设置页增加, 不硬编码 |
+| 旧记录 | 清空(老板 2026-10-20 定) |

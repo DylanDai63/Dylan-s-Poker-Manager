@@ -9,8 +9,8 @@ ROOT = Path(__file__).resolve().parent.parent
 ICON_DIR = ROOT / "icons"
 ICON_DIR.mkdir(exist_ok=True)
 
-BG = (15, 84, 56)        # deep poker-table green
-FG = (245, 240, 225)     # warm off-white
+BG = (15, 15, 15)        # --bg   (GTO Wizard-style black)
+FG = (170, 251, 178)     # --accent mint green
 
 def make_icon(size: int, path: Path) -> None:
     img = Image.new("RGB", (size, size), BG)
@@ -31,6 +31,8 @@ def make_icon(size: int, path: Path) -> None:
     target_h = int(size * 0.62)
     font = None
     for candidate in [
+        "C:/Windows/Fonts/seguisym.ttf",       # Windows: Segoe UI Symbol has ♠
+        "C:/Windows/Fonts/arialbd.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]:
@@ -38,7 +40,7 @@ def make_icon(size: int, path: Path) -> None:
             font = ImageFont.truetype(candidate, target_h)
             break
     if font is None:
-        font = ImageFont.load_default()
+        font = ImageFont.load_default(size=target_h)
 
     bbox = draw.textbbox((0, 0), glyph, font=font)
     w = bbox[2] - bbox[0]

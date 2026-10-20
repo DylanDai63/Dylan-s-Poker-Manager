@@ -1,39 +1,53 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SUPABASE_URL, SUPABASE_KEY } from "./config.js";
+import { db, MOCK } from "./db.js";
+import {
+  sessionPnl, sessionPnlBb, bbPer100, netPlayMs, buildSessionRow, buildSeries, computeStats,
+  venueColor, fmtUsd, fmtBb, fmtBb100, pnlClass, num,
+} from "./bankroll-core.js";
+import { renderBankrollChart } from "./bankroll-chart.js";
 import { POSITIONS_RFI, POSITIONS_VS_UTG, POSITION_LABEL } from "./ranges.js";
 import { rangeGridHTML } from "./range-grid.js";
 import { setupTrainer, enterTrainer } from "./trainer.js";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: false },
-});
-
 // ───────────────────────── state ─────────────────────────
 
-const LS_KEY = "poker.activeSession";        // {startedAt, plannedMinutes, alarmStopped}
+const LS_KEY = "poker.activeSession";        // {startedAt, plannedMinutes, alarmStopped, limpCount, totalBreakMs, breakStartedAt}
 const LS_DURATION = "poker.lastDurationMins";
+const LS_LAST_VENUE = "poker.lastVenueId";
+const LS_LAST_STAKES = "poker.lastStakesId";
+const LS_CHART_VENUES = "poker.chart.venues"; // JSON array of venue ids; absent = all
+const LS_CHART_TOTAL = "poker.chart.total";   // "0" hides the 合计 line
 
 let countdownRAF = null;
 let alarmInterval = null;
+let vibInterval = null;
 let audioCtx = null;
-let allSessionsCache = [];                    // all sessions, ASC by started_at
-let recentCache = [];                          // last 8 sessions, DESC (for "最近" list)
-let editingId = null;                          // session being edited
-let prevView = "view-home";                    // where to return after closing ranges
+
+let venues = [];                               // from db, sorted
+let stakes = [];
+let sessions = [];                             // ASC by started_at
+let prevView = "view-home";                    // where to return after closing ranges / trainer
 let rangeScenario = "RFI";
 let rangePosition = "BTN";
-let selectedBankrollSessionId = null;
 
 // ───────────────────────── DOM helpers ─────────────────────────
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function showView(id) {
   $$(".view").forEach((v) => v.classList.add("hidden"));
   $(`#${id}`).classList.remove("hidden");
   window.scrollTo(0, 0);   // every view opens at its top
   if (id === "view-home") updateActiveBanner();
+}
+
+function currentView() {
+  const v = $$(".view").find((el) => !el.classList.contains("hidden"));
+  return v ? v.id : "view-home";
 }
 
 function updateActiveBanner() {
@@ -71,6 +85,14 @@ function showFatalError(msg) {
   if (!el) return;
   el.classList.remove("hidden");
   el.textContent = "⚠ " + msg;
+}
+
+// Disable a button while an async action runs; returns a restore function.
+function busy(btn, label) {
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  return () => { btn.disabled = false; btn.textContent = old; };
 }
 
 // ───────────────────────── timer state (localStorage) ─────────────────────────
@@ -209,8 +231,23 @@ function formatDate(d) {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+function formatDateTime(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${formatHM(d)}`;
+}
+
 function toDatetimeLocal(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function timeAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return "?";
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins} 分钟前`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours} 小时前`;
+  return `${Math.round(hours / 24)} 天前`;
 }
 
 // ───────────────────────── audio (Web Audio API) ─────────────────────────
@@ -247,13 +284,9 @@ function startAlarm() {
   alarmInterval = setInterval(beep, 700);
   if (navigator.vibrate) {
     navigator.vibrate([400, 150, 400, 150, 600, 200, 400]);
-    // re-vibrate every few seconds
-    if (alarmInterval) {
-      const vibInterval = setInterval(() => {
-        if (!alarmInterval) { clearInterval(vibInterval); return; }
-        navigator.vibrate([400, 150, 400]);
-      }, 3000);
-    }
+    // re-vibrate every few seconds (one interval, even if the alarm is re-entered)
+    if (vibInterval) clearInterval(vibInterval);
+    vibInterval = setInterval(() => navigator.vibrate([400, 150, 400]), 3000);
   }
 }
 
@@ -262,95 +295,131 @@ function stopAlarm() {
     clearInterval(alarmInterval);
     alarmInterval = null;
   }
+  if (vibInterval) {
+    clearInterval(vibInterval);
+    vibInterval = null;
+  }
   if (navigator.vibrate) navigator.vibrate(0);
 }
 
-// ───────────────────────── sessions CRUD ─────────────────────────
+// ───────────────────────── data ─────────────────────────
 
-async function saveSessionToCloud(row) {
-  const { data, error } = await supabase
-    .from("sessions")
-    .insert([row])
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
+const venueById = (id) => venues.find((v) => v.id === id) || null;
+const stakesById = (id) => stakes.find((s) => s.id === id) || null;
 
-async function updateSessionInCloud(id, patch) {
-  const { data, error } = await supabase
-    .from("sessions")
-    .update(patch)
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-async function deleteSessionFromCloud(id) {
-  const { error } = await supabase.from("sessions").delete().eq("id", id);
-  if (error) throw error;
-}
-
-async function listAllSessions() {
-  const { data, error } = await supabase
-    .from("sessions")
-    .select("*")
-    .order("started_at", { ascending: true });
-  if (error) throw error;
-  return data || [];
-}
-
-// ───────────────────────── views ─────────────────────────
-
-function renderRecent(list) {
-  const root = $("#recent-list");
-  if (!list || list.length === 0) {
-    root.innerHTML = `<div class="recent-empty">还没记录过 session</div>`;
-    return;
-  }
-  root.innerHTML = list.map((s) => {
-    const started = new Date(s.started_at);
-    const ended = new Date(s.ended_at);
-    const pnl = Number(s.cash_out) - Number(s.buy_in);
-    const sign = pnl > 0 ? "+" : pnl < 0 ? "−" : "";
-    const cls = pnl > 0 ? "pos" : pnl < 0 ? "neg" : "zero";
-    return `
-      <div class="recent-row" data-id="${s.id}">
-        <div>${formatDate(started)} · ${formatHM(started)}–${formatHM(ended)}</div>
-        <div class="muted">${formatDuration(ended - started)}</div>
-        <div class="pnl ${cls}">${sign}$${Math.abs(pnl).toFixed(2)}</div>
-      </div>
-    `;
-  }).join("");
-}
-
-async function refreshRecent() {
+async function loadAll() {
   try {
-    allSessionsCache = await listAllSessions();
-    recentCache = allSessionsCache.slice(-8).reverse();
-    renderRecent(recentCache);
-    renderBankrollMini();
+    [venues, stakes, sessions] = await Promise.all([db.listVenues(), db.listStakes(), db.listSessions()]);
   } catch (err) {
     console.error(err);
-    $("#recent-list").innerHTML = `<div class="recent-empty">加载失败：${err.message || err}</div>`;
+    $("#recent-list").innerHTML = `<div class="recent-empty">加载失败：${esc(err.message || err)}</div>`;
+    toast("加载失败：" + (err.message || err), "err");
+    return;
   }
+  renderHome();
+  openDeepLink();
 }
 
-function setupRecentClicks() {
-  $("#recent-list").addEventListener("click", (e) => {
+// index.html#bankroll / #settings / #add open that view once the data is in
+// (desktop bookmarks and layout checks). Never on top of a running timer.
+function openDeepLink() {
+  const target = { "#bankroll": enterBankroll, "#settings": enterSettings, "#add": () => enterSessionForm({ mode: "add" }) }[location.hash];
+  if (!target || loadActive()) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  target();
+}
+
+async function reloadSessions() {
+  sessions = await db.listSessions();
+  renderHome();
+  if (currentView() === "view-bankroll") renderBankroll();
+}
+
+// ───────────────────────── shared renderers ─────────────────────────
+
+function kpiHTML(label, value, cls = "") {
+  return `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value ${cls}">${value}</div></div>`;
+}
+
+function renderKpis(root, st, { full = false } = {}) {
+  const items = [
+    kpiHTML("总盈亏", fmtUsd(st.total), pnlClass(st.total)),
+    kpiHTML("Sessions", st.count),
+    kpiHTML("$/h", st.hourly == null ? "—" : fmtUsd(st.hourly), st.hourly == null ? "" : pnlClass(st.hourly)),
+    kpiHTML("线上 bb/100", fmtBb100(st.online.bbPer100), st.online.bbPer100 == null ? "" : pnlClass(st.online.bbPer100)),
+  ];
+  if (full) {
+    items.push(
+      kpiHTML("胜率", st.winrate == null ? "—" : `${Math.round(st.winrate * 100)}%`),
+      kpiHTML("总时长", `${st.hours.toFixed(1)} h`),
+      kpiHTML("线上手数", st.online.hands ? st.online.hands.toLocaleString() : "—"),
+      kpiHTML("线上盈亏", st.online.count ? fmtBb(st.online.pnlBb) : "—", st.online.count ? pnlClass(st.online.pnlBb) : ""),
+    );
+  }
+  root.innerHTML = items.join("");
+}
+
+function sessionRowHTML(s) {
+  const v = venueById(s.venue_id);
+  const started = new Date(s.started_at);
+  const pnl = sessionPnl(s);
+  let sub;
+  if (v && v.kind === "online") {
+    const st = stakesById(s.stakes_id);
+    const bb = sessionPnlBb(s);
+    const parts = [st ? st.code : "?", bb == null ? "" : fmtBb(bb)];
+    if (s.hands) parts.push(`${s.hands} 手 · ${fmtBb100(bbPer100(bb, s.hands))}`);
+    sub = parts.filter(Boolean).join(" · ");
+  } else {
+    sub = formatDuration(netPlayMs(s));
+    if (s.notes) sub += ` · ${s.notes}`;
+  }
+  return `
+    <div class="recent-row" data-id="${esc(s.id)}">
+      <span class="dot" style="background:${venueColor(venues, s.venue_id)}"></span>
+      <div class="recent-main">
+        <div class="recent-title">${esc(v ? v.name : "?")} <span class="muted">· ${formatDate(started)} ${formatHM(started)}</span></div>
+        <div class="muted small recent-sub">${esc(sub)}</div>
+      </div>
+      <div class="pnl ${pnlClass(pnl)}">${fmtUsd(pnl)}</div>
+    </div>
+  `;
+}
+
+function renderSessionRows(root, list, emptyText) {
+  if (!list || list.length === 0) {
+    root.innerHTML = `<div class="recent-empty">${emptyText}</div>`;
+    return;
+  }
+  root.innerHTML = list.map(sessionRowHTML).join("");
+}
+
+function rowClickOpensEdit(rootSel, returnTo) {
+  $(rootSel).addEventListener("click", (e) => {
     const row = e.target.closest(".recent-row");
     if (!row) return;
-    const id = row.dataset.id;
-    const s = recentCache.find((x) => x.id === id);
-    if (s) enterEdit(s);
+    const s = sessions.find((x) => x.id === row.dataset.id);
+    if (s) enterSessionForm({ mode: "edit", session: s, returnTo });
   });
 }
 
 // ───────────────────────── home view ─────────────────────────
 
 let pickedMinutes = 180;
+
+function renderHome() {
+  renderKpis($("#home-kpis"), computeStats(sessions));
+  renderSessionRows($("#recent-list"), sessions.slice(-8).reverse(), "还没记录过 session");
+  renderMiniChart();
+}
+
+function renderMiniChart() {
+  const series = buildSeries(sessions, venues, venues.map((v) => v.id), { includeTotal: true });
+  // The sparkline is one line: the 合计 when there are several venues, else the only venue.
+  const total = series.datasets.find((d) => d.venueId === null) || series.datasets[0];
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#aafbb2";
+  renderBankrollChart($("#chart-mini"), { ...series, datasets: total ? [{ ...total, color: accent }] : [] }, { mini: true, noVenuesText: "还没记录过 session" });
+}
 
 function setupHome() {
   const saved = parseInt(localStorage.getItem(LS_DURATION) || "180", 10);
@@ -385,6 +454,10 @@ function setupHome() {
       toast("请设置时长", "err");
       return;
     }
+    if (loadActive()) {
+      enterRunning();   // a session is already running: just go back to it
+      return;
+    }
     ensureAudio(); // unlock audio on user gesture
     const s = {
       startedAt: Date.now(),
@@ -398,6 +471,11 @@ function setupHome() {
     localStorage.setItem(LS_DURATION, String(pickedMinutes));
     enterRunning();
   });
+
+  $("#add-session-btn").addEventListener("click", () => enterSessionForm({ mode: "add", returnTo: "view-home" }));
+  $("#settings-btn").addEventListener("click", enterSettings);
+  $("#bankroll-card").addEventListener("click", enterBankroll);
+  rowClickOpensEdit("#recent-list", "view-home");
 
   $("#ranges-btn-home").addEventListener("click", () => {
     prevView = "view-home";
@@ -427,6 +505,12 @@ function selectDurationChip(mins) {
   } else {
     $("#duration-custom-wrap").classList.add("hidden");
   }
+}
+
+function updateDailyMotto() {
+  const el = $("#daily-motto");
+  if (!el) return;
+  el.textContent = `"${getDailyMotto()}"`;
 }
 
 // ───────────────────────── running view ─────────────────────────
@@ -490,12 +574,6 @@ function setupLimpCounter() {
   $("#limp-warning-overlay").addEventListener("click", (e) => {
     if (e.target.id === "limp-warning-overlay") hideLimpWarning();
   });
-}
-
-function updateDailyMotto() {
-  const el = $("#daily-motto");
-  if (!el) return;
-  el.textContent = `"${getDailyMotto()}"`;
 }
 
 function endAt(s) {
@@ -690,10 +768,7 @@ function setupAlarm() {
   });
 }
 
-// ───────────────────────── record view ─────────────────────────
-
-let recordContext = null; // captured at the moment user pressed End
-
+// End of a timed session → the session form, pre-filled from the timer.
 function enterRecord() {
   const s = loadActive();
   if (!s) {
@@ -701,144 +776,422 @@ function enterRecord() {
     return;
   }
   stopAlarm();
-  recordContext = {
-    startedAt: new Date(s.startedAt),
-    endedAt: new Date(),
-    plannedMinutes: s.plannedMinutes,
+  stopBreakLoop();
+  let breakMs = s.totalBreakMs || 0;
+  if (s.breakStartedAt) breakMs += Date.now() - s.breakStartedAt;   // ended while on a break
+  enterSessionForm({
+    mode: "record",
+    returnTo: "view-home",
+    timer: {
+      startedAt: new Date(s.startedAt),
+      endedAt: new Date(),
+      plannedMinutes: s.plannedMinutes,
+      breakMinutes: Math.round(breakMs / 60000),
+    },
+  });
+}
+
+// ───────────────────────── session form (record / add / edit) ─────────────────────────
+
+// form.mode: "record" (after the timer; saving clears the active session),
+//            "add" (by hand), "edit" (existing row; delete allowed)
+let form = { mode: "add", session: null, timer: null, venueId: null, stakesId: null, returnTo: "view-home" };
+
+function enterSessionForm(opts) {
+  form = {
+    mode: opts.mode,
+    session: opts.session || null,
+    timer: opts.timer || null,
+    venueId: null,
+    stakesId: null,
+    returnTo: opts.returnTo || "view-home",
   };
-  $("#record-summary").textContent =
-    `${formatHM(recordContext.startedAt)} → ${formatHM(recordContext.endedAt)} · ${formatDuration(recordContext.endedAt - recordContext.startedAt)}`;
-  $("#buy-in").value = "";
-  $("#cash-out").value = "";
-  $("#notes").value = "";
-  showView("view-record");
-  setTimeout(() => $("#buy-in").focus(), 200);
+  const s = form.session;
+  $("#session-title").textContent = { record: "Session 结束，记一笔", add: "记一场", edit: "编辑 Session" }[form.mode];
+
+  // venue / stakes: the row's, else the last used, else the first
+  form.venueId = s ? s.venue_id : localStorage.getItem(LS_LAST_VENUE);
+  if (!venueById(form.venueId)) form.venueId = venues[0] ? venues[0].id : null;
+  form.stakesId = s && s.stakes_id ? s.stakes_id : localStorage.getItem(LS_LAST_STAKES);
+  if (!stakesById(form.stakesId)) form.stakesId = stakes[0] ? stakes[0].id : null;
+
+  let startedAt, endedAt;
+  if (s) {
+    startedAt = new Date(s.started_at);
+    endedAt = new Date(s.ended_at);
+  } else if (form.timer) {
+    startedAt = form.timer.startedAt;
+    endedAt = form.timer.endedAt;
+  } else {
+    endedAt = new Date();
+    startedAt = new Date(endedAt.getTime() - 3 * 3600000);
+  }
+  $("#f-started").value = toDatetimeLocal(startedAt);
+  $("#f-ended").value = toDatetimeLocal(endedAt);
+  // USD is always prefilled (an online row stores the converted amounts too),
+  // so switching an online row to a live venue keeps its money.
+  const isOnlineRow = !!(s && s.buy_in_bb != null);
+  $("#f-buyin").value = s ? s.buy_in : "";
+  $("#f-cashout").value = s ? s.cash_out : "";
+  $("#f-buyin-bb").value = isOnlineRow ? s.buy_in_bb : "";
+  $("#f-cashout-bb").value = isOnlineRow ? s.cash_out_bb : "";
+  $("#f-hands").value = s && s.hands != null ? s.hands : "";
+  const brk = s ? (s.break_minutes || 0) : form.timer ? form.timer.breakMinutes : 0;
+  $("#f-break").value = brk || "";
+  $("#f-notes").value = s ? (s.notes || "") : "";
+  $("#f-more").open = !!(brk || (s && s.notes));
+
+  $("#f-delete").classList.toggle("hidden", form.mode !== "edit");
+  $("#f-discard").classList.toggle("hidden", form.mode !== "record");
+
+  renderVenueChips();
+  renderStakesChips();
+  applyVenueKind();
+  updatePreview();
+  showView("view-session");
+  if (venues.length === 0) toast("还没有场地，先去设置里加一个", "err");
 }
 
-function setupRecord() {
-  $("#record-form").addEventListener("submit", async (e) => {
+function renderVenueChips() {
+  $("#venue-chips").innerHTML = venues.map((v) => `
+    <button type="button" class="chip ${v.id === form.venueId ? "selected" : ""}" data-id="${esc(v.id)}">
+      <i class="dot" style="background:${venueColor(venues, v.id)}"></i>${esc(v.name)}
+    </button>
+  `).join("") || `<span class="muted small">没有场地</span>`;
+}
+
+function renderStakesChips() {
+  $("#stakes-chips").innerHTML = stakes.map((st) => `
+    <button type="button" class="chip ${st.id === form.stakesId ? "selected" : ""}" data-id="${esc(st.id)}" title="${esc(st.label || "")}">
+      ${esc(st.code)} <span class="chip-sub">$${Number(st.bb_usd)}/bb</span>
+    </button>
+  `).join("") || `<span class="muted small">没有级别，先去设置里加</span>`;
+}
+
+function applyVenueKind() {
+  const v = venueById(form.venueId);
+  const online = !!(v && v.kind === "online");
+  $("#stakes-wrap").classList.toggle("hidden", !online);
+  $("#online-wrap").classList.toggle("hidden", !online);
+  $("#live-wrap").classList.toggle("hidden", online);
+}
+
+function readForm() {
+  return {
+    startedAt: new Date($("#f-started").value),
+    endedAt: new Date($("#f-ended").value),
+    buyIn: $("#f-buyin").value,
+    cashOut: $("#f-cashout").value,
+    buyInBb: $("#f-buyin-bb").value,
+    cashOutBb: $("#f-cashout-bb").value,
+    hands: $("#f-hands").value,
+    breakMinutes: $("#f-break").value,
+    notes: $("#f-notes").value,
+    plannedMinutes: form.session ? form.session.planned_duration_minutes : form.timer ? form.timer.plannedMinutes : null,
+  };
+}
+
+function currentRow() {
+  const venue = venueById(form.venueId);
+  const stake = venue && venue.kind === "online" ? stakesById(form.stakesId) : null;
+  return buildSessionRow(readForm(), venue, stake);
+}
+
+function updatePreview() {
+  const el = $("#f-preview");
+  const { row } = currentRow();
+  if (row.buy_in == null || row.cash_out == null) {
+    el.textContent = "填完金额这里会显示盈亏";
+    el.className = "preview";
+    return;
+  }
+  const pnl = sessionPnl(row);
+  const parts = [`盈亏 ${fmtUsd(pnl)}`];
+  if (row.buy_in_bb != null) {
+    const bb = sessionPnlBb(row);
+    parts.push(`${fmtBb(bb)}（${fmtUsd(row.buy_in, { sign: false })} → ${fmtUsd(row.cash_out, { sign: false })}）`);
+    if (num(row.hands) > 0) parts.push(fmtBb100(bbPer100(bb, row.hands)));
+  }
+  if (row.started_at && row.ended_at) parts.push(formatDuration(netPlayMs(row)));
+  el.textContent = parts.join(" · ");
+  el.className = "preview " + pnlClass(pnl);
+}
+
+function setupSessionForm() {
+  $("#venue-chips").addEventListener("click", (e) => {
+    const btn = e.target.closest(".chip");
+    if (!btn) return;
+    form.venueId = btn.dataset.id;
+    renderVenueChips();
+    applyVenueKind();
+    updatePreview();
+  });
+  $("#stakes-chips").addEventListener("click", (e) => {
+    const btn = e.target.closest(".chip");
+    if (!btn) return;
+    form.stakesId = btn.dataset.id;
+    renderStakesChips();
+    updatePreview();
+  });
+  ["#f-started", "#f-ended", "#f-buyin", "#f-cashout", "#f-buyin-bb", "#f-cashout-bb", "#f-hands", "#f-break"].forEach((sel) => {
+    $(sel).addEventListener("input", updatePreview);
+  });
+
+  $("#session-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!recordContext) return;
-    const buyIn = parseFloat($("#buy-in").value);
-    const cashOut = parseFloat($("#cash-out").value);
-    if (isNaN(buyIn) || isNaN(cashOut)) {
-      toast("请填 buy-in 和 cash-out", "err");
+    const { row, errors } = currentRow();
+    if (errors.length) {
+      toast(errors[0], "err");
       return;
     }
-    const btn = $("#save-btn");
-    btn.disabled = true;
-    btn.textContent = "保存中...";
+    const done = busy($("#f-save"), "保存中...");
     try {
-      await saveSessionToCloud({
-        started_at: recordContext.startedAt.toISOString(),
-        ended_at: recordContext.endedAt.toISOString(),
-        planned_duration_minutes: recordContext.plannedMinutes,
-        buy_in: buyIn,
-        cash_out: cashOut,
-        notes: $("#notes").value.trim() || null,
-      });
-      clearActive();
-      recordContext = null;
-      toast("已保存", "ok");
-      await refreshRecent();
-      showView("view-home");
+      if (form.mode === "edit") await db.updateSession(form.session.id, row);
+      else await db.insertSession(row);
     } catch (err) {
       console.error(err);
       toast("保存失败：" + (err.message || err), "err");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "保存";
-    }
-  });
-
-  $("#discard-btn").addEventListener("click", () => {
-    if (!confirm("确定丢弃这场 session？数据不会保存。")) return;
-    clearActive();
-    recordContext = null;
-    showView("view-home");
-  });
-}
-
-// ───────────────────────── edit view ─────────────────────────
-
-function enterEdit(session) {
-  editingId = session.id;
-  const started = new Date(session.started_at);
-  const ended = new Date(session.ended_at);
-  $("#edit-summary").textContent =
-    `${formatDate(started)} · ${formatHM(started)} → ${formatHM(ended)}`;
-  $("#edit-started-at").value = toDatetimeLocal(started);
-  $("#edit-ended-at").value = toDatetimeLocal(ended);
-  $("#edit-planned").value = session.planned_duration_minutes;
-  $("#edit-buy-in").value = session.buy_in;
-  $("#edit-cash-out").value = session.cash_out;
-  $("#edit-notes").value = session.notes || "";
-  showView("view-edit");
-}
-
-function setupEdit() {
-  $("#edit-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    if (!editingId) return;
-    const startedAt = new Date($("#edit-started-at").value);
-    const endedAt = new Date($("#edit-ended-at").value);
-    if (isNaN(startedAt) || isNaN(endedAt)) {
-      toast("时间填写不正确", "err");
+      done();
       return;
     }
-    if (endedAt <= startedAt) {
-      toast("结束时间要晚于开始时间", "err");
-      return;
-    }
-    const btn = $("#edit-save-btn");
-    btn.disabled = true;
-    btn.textContent = "保存中...";
-    try {
-      await updateSessionInCloud(editingId, {
-        started_at: startedAt.toISOString(),
-        ended_at: endedAt.toISOString(),
-        planned_duration_minutes: parseInt($("#edit-planned").value, 10),
-        buy_in: parseFloat($("#edit-buy-in").value),
-        cash_out: parseFloat($("#edit-cash-out").value),
-        notes: $("#edit-notes").value.trim() || null,
-      });
-      toast("已保存", "ok");
-      editingId = null;
-      await refreshRecent();
-      showView("view-home");
-    } catch (err) {
-      console.error(err);
-      toast("保存失败：" + (err.message || err), "err");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "保存";
-    }
+    done();
+    localStorage.setItem(LS_LAST_VENUE, row.venue_id);
+    if (row.stakes_id) localStorage.setItem(LS_LAST_STAKES, row.stakes_id);
+    if (form.mode === "record") clearActive();
+    toast("已保存", "ok");
+    await leaveFormAfterWrite(form.returnTo);
   });
 
-  $("#edit-delete-btn").addEventListener("click", async () => {
-    if (!editingId) return;
+  $("#f-delete").addEventListener("click", async () => {
+    if (form.mode !== "edit" || !form.session) return;
     if (!confirm("确定删除这条 session？无法恢复。")) return;
-    const btn = $("#edit-delete-btn");
-    btn.disabled = true;
-    btn.textContent = "删除中...";
+    const done = busy($("#f-delete"), "删除中...");
     try {
-      await deleteSessionFromCloud(editingId);
-      toast("已删除", "ok");
-      editingId = null;
-      await refreshRecent();
-      showView("view-home");
+      await db.deleteSession(form.session.id);
     } catch (err) {
       console.error(err);
       toast("删除失败：" + (err.message || err), "err");
+      done();
+      return;
+    }
+    done();
+    toast("已删除", "ok");
+    await leaveFormAfterWrite(form.returnTo);
+  });
+
+  $("#f-discard").addEventListener("click", () => {
+    if (!confirm("确定丢弃这场 session？数据不会保存。")) return;
+    clearActive();
+    showView("view-home");
+  });
+
+  // Back from the post-timer form returns to the running timer (End was a
+  // mis-tap); otherwise to wherever the form was opened from.
+  $("#session-back").addEventListener("click", () => {
+    if (form.mode === "record" && loadActive()) {
+      enterRunning();
+      return;
+    }
+    showView(form.returnTo);
+    if (form.returnTo === "view-bankroll") renderBankroll();
+  });
+}
+
+// After a successful write: refresh and go back. A refresh failure must not
+// read as a failed write (the row is already in the database).
+async function leaveFormAfterWrite(view) {
+  try {
+    await reloadSessions();
+  } catch (err) {
+    console.error(err);
+    toast("已保存，但列表刷新失败：" + (err.message || err), "err");
+  }
+  showView(view);
+  if (view === "view-bankroll") renderBankroll();
+}
+
+// ───────────────────────── bankroll view ─────────────────────────
+
+let chartSel = null;        // Set of venue ids, or null = all venues
+let chartTotal = true;
+
+function loadChartPrefs() {
+  try {
+    const a = JSON.parse(localStorage.getItem(LS_CHART_VENUES));
+    if (Array.isArray(a)) chartSel = new Set(a);
+  } catch { /* defaults */ }
+  chartTotal = localStorage.getItem(LS_CHART_TOTAL) !== "0";
+}
+
+function saveChartPrefs() {
+  if (chartSel) localStorage.setItem(LS_CHART_VENUES, JSON.stringify([...chartSel]));
+  else localStorage.removeItem(LS_CHART_VENUES);
+  localStorage.setItem(LS_CHART_TOTAL, chartTotal ? "1" : "0");
+}
+
+function selectedVenueIds() {
+  const ids = venues.map((v) => v.id);
+  return chartSel ? ids.filter((id) => chartSel.has(id)) : ids;
+}
+
+function renderVenueFilter(sel) {
+  const selSet = new Set(sel);
+  const chips = venues.map((v) => `
+    <button type="button" class="chip ${selSet.has(v.id) ? "selected" : ""}" data-id="${esc(v.id)}">
+      <i class="dot" style="background:${venueColor(venues, v.id)}"></i>${esc(v.name)}
+    </button>
+  `);
+  chips.push(`
+    <button type="button" class="chip chip-total ${chartTotal ? "selected" : ""}" data-total="1" ${sel.length > 1 ? "" : "disabled"}>
+      <i class="dot dot-total"></i>合计
+    </button>
+  `);
+  $("#venue-filter").innerHTML = chips.join("");
+}
+
+function renderBankroll() {
+  const sel = selectedVenueIds();
+  renderVenueFilter(sel);
+  const series = buildSeries(sessions, venues, sel, { includeTotal: chartTotal });
+  renderBankrollChart($("#chart-full"), series, {
+    mini: false,
+    onPointTap: (s) => enterSessionForm({ mode: "edit", session: s, returnTo: "view-bankroll" }),
+  });
+  renderKpis($("#bankroll-stats"), computeStats(series.sessions), { full: true });
+  $("#session-list-count").textContent = series.sessions.length ? `· ${series.sessions.length}` : "";
+  renderSessionRows($("#session-list"), series.sessions.slice().reverse(), sel.length ? "这些场地还没记录" : "没选场地");
+}
+
+function enterBankroll() {
+  showView("view-bankroll");
+  renderBankroll();
+}
+
+function setupBankroll() {
+  $("#bankroll-close").addEventListener("click", () => showView("view-home"));
+  $("#venue-filter").addEventListener("click", (e) => {
+    const btn = e.target.closest(".chip");
+    if (!btn || btn.disabled) return;
+    if (btn.dataset.total) {
+      chartTotal = !chartTotal;
+    } else {
+      const all = venues.map((v) => v.id);
+      const next = new Set(chartSel ? [...chartSel].filter((id) => all.includes(id)) : all);
+      if (next.has(btn.dataset.id)) next.delete(btn.dataset.id);
+      else next.add(btn.dataset.id);
+      chartSel = next.size === all.length ? null : next;
+    }
+    saveChartPrefs();
+    renderBankroll();
+  });
+  rowClickOpensEdit("#session-list", "view-bankroll");
+}
+
+// ───────────────────────── settings view ─────────────────────────
+
+function renderSettings() {
+  $("#venue-list").innerHTML = venues.map((v) => `
+    <div class="plain-row">
+      <i class="dot" style="background:${venueColor(venues, v.id)}"></i>
+      <span class="grow">${esc(v.name)}</span>
+      <span class="muted small">${v.kind === "online" ? "线上 · bb" : "线下 · USD"}</span>
+    </div>
+  `).join("") || `<div class="muted small">还没有场地</div>`;
+  $("#stakes-list").innerHTML = stakes.map((st) => `
+    <div class="plain-row">
+      <span class="grow"><b>${esc(st.code)}</b> <span class="muted small">${esc(st.label || "")}</span></span>
+      <span class="muted small">1 bb = $${Number(st.bb_usd)}</span>
+    </div>
+  `).join("") || `<div class="muted small">还没有级别</div>`;
+  $("#db-mode").textContent = db.name + (MOCK ? "（假数据，不保存）" : "");
+}
+
+async function refreshKeepalive() {
+  const el = $("#keepalive-status");
+  el.textContent = "查询中…";
+  try {
+    const k = await db.latestKeepalive();
+    if (!k) {
+      el.textContent = "还没有任何保活记录";
+      el.className = "value neg";
+      return;
+    }
+    const hours = (Date.now() - new Date(k.pinged_at).getTime()) / 3600000;
+    el.innerHTML = `上次保活：<b>${esc(timeAgo(k.pinged_at))}</b> <span class="muted small">（${esc(k.source || "?")} · ${formatDateTime(new Date(k.pinged_at))}）</span>`;
+    el.className = "value " + (hours > 24 ? "neg" : "pos");
+  } catch (err) {
+    console.error(err);
+    el.textContent = "查不到：" + (err.message || err);
+    el.className = "value neg";
+  }
+}
+
+function enterSettings() {
+  showView("view-settings");
+  renderSettings();
+  refreshKeepalive();
+}
+
+function setupSettings() {
+  $("#settings-close").addEventListener("click", () => showView("view-home"));
+
+  $("#ping-btn").addEventListener("click", async () => {
+    const done = busy($("#ping-btn"), "ping 中...");
+    try {
+      await db.ping("app");
+      toast("ping 成功", "ok");
+      await refreshKeepalive();
+    } catch (err) {
+      console.error(err);
+      toast("ping 失败：" + (err.message || err), "err");
     } finally {
-      btn.disabled = false;
-      btn.textContent = "删除这条";
+      done();
     }
   });
 
-  $("#edit-cancel-btn").addEventListener("click", () => {
-    editingId = null;
-    showView("view-home");
+  $("#venue-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#venue-name").value.trim();
+    const kind = $("#venue-kind").value;
+    if (!name) { toast("场地名不能为空", "err"); return; }
+    const done = busy(e.submitter || $("#venue-form button"), "添加中...");
+    try {
+      await db.insertVenue({ name, kind, sort_order: venues.length + 1 });
+      venues = await db.listVenues();
+      $("#venue-name").value = "";
+      renderSettings();
+      renderHome();
+      toast("已添加", "ok");
+    } catch (err) {
+      console.error(err);
+      toast("添加失败：" + (err.message || err), "err");
+    } finally {
+      done();
+    }
+  });
+
+  $("#stakes-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = $("#stakes-code").value.trim();
+    const bb = num($("#stakes-bb").value);
+    const label = $("#stakes-label").value.trim() || null;
+    if (!code) { toast("代号不能为空", "err"); return; }
+    if (!Number.isFinite(bb) || bb <= 0) { toast("1 bb 的美元数要大于 0", "err"); return; }
+    const done = busy(e.submitter || $("#stakes-form button"), "添加中...");
+    try {
+      await db.insertStakes({ code, bb_usd: bb, label, sort_order: stakes.length + 1 });
+      stakes = await db.listStakes();
+      $("#stakes-code").value = "";
+      $("#stakes-bb").value = "";
+      $("#stakes-label").value = "";
+      renderSettings();
+      toast("已添加", "ok");
+    } catch (err) {
+      console.error(err);
+      toast("添加失败：" + (err.message || err), "err");
+    } finally {
+      done();
+    }
   });
 }
 
@@ -893,262 +1246,18 @@ function setupRanges() {
   });
 }
 
-// ───────────────────────── bankroll view ─────────────────────────
-
-function sessionPnl(s) {
-  return Number(s.cash_out) - Number(s.buy_in);
-}
-
-function buildBankrollPoints(sessions) {
-  // sessions assumed ASC by started_at. Returns [{time, pnl, session}].
-  // First point is a synthetic anchor at $0 just before the first session.
-  if (sessions.length === 0) return [];
-  const first = new Date(sessions[0].started_at);
-  const points = [{ time: new Date(first.getTime() - 1), pnl: 0, session: null }];
-  let cumul = 0;
-  for (const s of sessions) {
-    cumul += sessionPnl(s);
-    points.push({ time: new Date(s.ended_at), pnl: cumul, session: s });
-  }
-  return points;
-}
-
-function renderBankrollChart(container, sessions, { mini = true, selectedId = null, onPointTap = null } = {}) {
-  container.innerHTML = "";
-
-  if (sessions.length === 0) {
-    container.innerHTML = `<div class="chart-empty">还没记录过 session</div>`;
-    return;
-  }
-
-  const points = buildBankrollPoints(sessions);
-  const W = container.clientWidth || 320;
-  const H = mini ? 120 : 280;
-  const padTop = mini ? 8 : 14;
-  const padBottom = mini ? 8 : 26;
-  const padLeft = mini ? 8 : 44;
-  const padRight = mini ? 8 : 12;
-  const innerW = Math.max(1, W - padLeft - padRight);
-  const innerH = Math.max(1, H - padTop - padBottom);
-
-  const minTime = points[0].time.getTime();
-  const maxTime = points[points.length - 1].time.getTime();
-  const timeRange = Math.max(1, maxTime - minTime);
-
-  let minPnl = Math.min(...points.map((p) => p.pnl));
-  let maxPnl = Math.max(...points.map((p) => p.pnl));
-  if (minPnl === maxPnl) {
-    minPnl -= 10;
-    maxPnl += 10;
-  }
-  if (minPnl > 0) minPnl = 0;
-  if (maxPnl < 0) maxPnl = 0;
-  const pnlRange = maxPnl - minPnl || 1;
-
-  const xFor = (t) => padLeft + ((t.getTime() - minTime) / timeRange) * innerW;
-  const yFor = (p) => padTop + (1 - (p - minPnl) / pnlRange) * innerH;
-
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  svg.setAttribute("preserveAspectRatio", "none");
-
-  // Zero line (only if range crosses zero)
-  if (minPnl < 0 && maxPnl > 0) {
-    const line = document.createElementNS(ns, "line");
-    line.setAttribute("x1", padLeft);
-    line.setAttribute("x2", W - padRight);
-    line.setAttribute("y1", yFor(0));
-    line.setAttribute("y2", yFor(0));
-    line.setAttribute("class", "zero-line");
-    svg.appendChild(line);
-  }
-
-  // Line path
-  const lastPnl = points[points.length - 1].pnl;
-  const lineCls = lastPnl > 0 ? "chart-line pos" : lastPnl < 0 ? "chart-line neg" : "chart-line";
-  let d = "";
-  for (let i = 0; i < points.length; i++) {
-    d += (i === 0 ? "M" : "L") + xFor(points[i].time).toFixed(1) + "," + yFor(points[i].pnl).toFixed(1);
-  }
-  const path = document.createElementNS(ns, "path");
-  path.setAttribute("d", d);
-  path.setAttribute("class", lineCls);
-  svg.appendChild(path);
-
-  // Points (skip synthetic anchor at index 0)
-  for (let i = 1; i < points.length; i++) {
-    const p = points[i];
-    const cx = xFor(p.time);
-    const cy = yFor(p.pnl);
-    const pnl = sessionPnl(p.session);
-    const cls = pnl >= 0 ? "chart-point pos" : "chart-point neg";
-    const isSelected = selectedId && p.session.id === selectedId;
-
-    const c = document.createElementNS(ns, "circle");
-    c.setAttribute("cx", cx);
-    c.setAttribute("cy", cy);
-    c.setAttribute("r", mini ? 2.5 : isSelected ? 7 : 4.5);
-    c.setAttribute("class", cls + (isSelected ? " selected" : ""));
-    svg.appendChild(c);
-
-    if (onPointTap && !mini) {
-      // Larger invisible tap target
-      const tap = document.createElementNS(ns, "circle");
-      tap.setAttribute("cx", cx);
-      tap.setAttribute("cy", cy);
-      tap.setAttribute("r", 14);
-      tap.setAttribute("fill", "transparent");
-      tap.style.cursor = "pointer";
-      tap.dataset.id = p.session.id;
-      svg.appendChild(tap);
-    }
-  }
-
-  // Axis labels (full only)
-  if (!mini) {
-    const mkText = (x, y, text, anchor = "start") => {
-      const t = document.createElementNS(ns, "text");
-      t.setAttribute("x", x);
-      t.setAttribute("y", y);
-      t.setAttribute("class", "chart-label");
-      t.setAttribute("text-anchor", anchor);
-      t.textContent = text;
-      svg.appendChild(t);
-    };
-    const fmtAxis = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
-    mkText(padLeft, H - 8, fmtAxis(points[0].time));
-    mkText(W - padRight, H - 8, fmtAxis(points[points.length - 1].time), "end");
-    mkText(padLeft - 4, padTop + 4, `$${Math.round(maxPnl)}`, "end");
-    mkText(padLeft - 4, padTop + innerH, `$${Math.round(minPnl)}`, "end");
-    if (minPnl < 0 && maxPnl > 0) {
-      mkText(padLeft - 4, yFor(0) + 3, "$0", "end");
-    }
-  }
-
-  if (onPointTap && !mini) {
-    svg.addEventListener("click", (e) => {
-      const id = e.target && e.target.dataset && e.target.dataset.id;
-      if (!id) return;
-      const session = sessions.find((s) => s.id === id);
-      if (session) onPointTap(session);
-    });
-  }
-
-  container.appendChild(svg);
-}
-
-function renderBankrollMini() {
-  const card = $("#bankroll-card");
-  const chart = $("#bankroll-chart-mini");
-  const total = $("#pnl-total");
-  if (!card || !chart || !total) return;
-
-  const sessions = allSessionsCache;
-  const sum = sessions.reduce((acc, s) => acc + sessionPnl(s), 0);
-  const sign = sum > 0 ? "+" : sum < 0 ? "−" : "";
-  total.textContent = `${sign}$${Math.abs(sum).toFixed(2)}`;
-  total.className = "pnl-total " + (sum > 0 ? "pos" : sum < 0 ? "neg" : "");
-
-  renderBankrollChart(chart, sessions, { mini: true });
-}
-
-function computeStats(sessions) {
-  if (sessions.length === 0) {
-    return { total: 0, count: 0, winrate: null, hourly: null };
-  }
-  let total = 0;
-  let wins = 0;
-  let totalMs = 0;
-  for (const s of sessions) {
-    const pnl = sessionPnl(s);
-    total += pnl;
-    if (pnl > 0) wins++;
-    totalMs += new Date(s.ended_at) - new Date(s.started_at);
-  }
-  const hours = totalMs / 1000 / 3600;
-  return {
-    total,
-    count: sessions.length,
-    winrate: wins / sessions.length,
-    hourly: hours > 0 ? total / hours : null,
-  };
-}
-
-function renderBankrollDetail() {
-  const sessions = allSessionsCache;
-  const stats = computeStats(sessions);
-
-  const totalEl = $("#stat-total");
-  const sign = stats.total > 0 ? "+" : stats.total < 0 ? "−" : "";
-  totalEl.textContent = `${sign}$${Math.abs(stats.total).toFixed(2)}`;
-  totalEl.className = "stat-value " + (stats.total > 0 ? "pos" : stats.total < 0 ? "neg" : "");
-
-  $("#stat-count").textContent = String(stats.count);
-  $("#stat-winrate").textContent = stats.winrate == null ? "—" : `${Math.round(stats.winrate * 100)}%`;
-  $("#stat-hourly").textContent = stats.hourly == null
-    ? "—"
-    : `${stats.hourly >= 0 ? "+" : "−"}$${Math.abs(stats.hourly).toFixed(1)}/h`;
-  const hourlyEl = $("#stat-hourly");
-  hourlyEl.className = "stat-value " + (stats.hourly == null ? "" : stats.hourly > 0 ? "pos" : stats.hourly < 0 ? "neg" : "");
-
-  renderBankrollChart($("#bankroll-chart-full"), sessions, {
-    mini: false,
-    selectedId: selectedBankrollSessionId,
-    onPointTap: (session) => {
-      selectedBankrollSessionId = session.id;
-      renderBankrollDetail();        // re-render to highlight selected point
-      renderSessionDetailCard(session);
-    },
-  });
-
-  // If a session was previously selected and still exists, re-render its card
-  if (selectedBankrollSessionId) {
-    const s = sessions.find((x) => x.id === selectedBankrollSessionId);
-    if (s) renderSessionDetailCard(s);
-  }
-}
-
-function renderSessionDetailCard(session) {
-  const card = $("#session-detail-card");
-  card.classList.remove("hidden");
-  const started = new Date(session.started_at);
-  const ended = new Date(session.ended_at);
-  const pnl = sessionPnl(session);
-  const sign = pnl > 0 ? "+" : pnl < 0 ? "−" : "";
-  const cls = pnl > 0 ? "pos" : pnl < 0 ? "neg" : "";
-
-  $("#detail-summary").textContent = `${formatDate(started)} · ${formatDuration(ended - started)}`;
-  $("#detail-times").textContent = `${formatHM(started)} → ${formatHM(ended)}`;
-  $("#detail-amounts").innerHTML = `
-    <div><div class="label">Buy-in</div><div class="v">$${Number(session.buy_in).toFixed(2)}</div></div>
-    <div><div class="label">Cash-out</div><div class="v">$${Number(session.cash_out).toFixed(2)}</div></div>
-    <div><div class="label">P/L</div><div class="v ${cls}">${sign}$${Math.abs(pnl).toFixed(2)}</div></div>
-  `;
-  $("#detail-notes").textContent = session.notes || "";
-  $("#detail-edit-btn").onclick = () => enterEdit(session);
-}
-
-function enterBankroll() {
-  selectedBankrollSessionId = null;
-  $("#session-detail-card").classList.add("hidden");
-  showView("view-bankroll");
-  renderBankrollDetail();
-}
-
-function setupBankroll() {
-  $("#bankroll-card").addEventListener("click", enterBankroll);
-  $("#bankroll-close").addEventListener("click", () => showView("view-home"));
-}
-
 // ───────────────────────── routing ─────────────────────────
 
 async function boot() {
+  loadChartPrefs();
   setupHome();
   setupRunning();
   setupAlarm();
-  setupRecord();
-  setupEdit();
+  setupBreak();
+  setupLimpCounter();
+  setupSessionForm();
+  setupBankroll();
+  setupSettings();
   setupRanges();
   try {
     setupTrainer({
@@ -1162,13 +1271,12 @@ async function boot() {
   } catch (err) {
     console.error("[trainer] setup failed, timer keeps working", err);
   }
-  setupRecentClicks();
-  setupBankroll();
-  setupLimpCounter();
-  setupBreak();
   updateDailyMotto();
 
-  refreshRecent();  // fire and forget; home view shows immediately
+  // Placeholders until the data is in (the timer must not wait for the network).
+  renderKpis($("#home-kpis"), computeStats([]));
+  $("#recent-list").innerHTML = `<div class="recent-empty">加载中…</div>`;
+  loadAll();  // fire and forget; home view shows immediately
 
   const s = loadActive();
   if (!s) {
@@ -1211,7 +1319,7 @@ boot().then(() => {
   // Deep link for desktop practice: index.html#trainer opens the trainer
   // directly (never on top of the alarm screen).
   if (location.hash === "#trainer" && $("#view-alarm").classList.contains("hidden")) {
-    prevView = ($$(".view").find((v) => !v.classList.contains("hidden")) || {}).id || "view-home";
+    prevView = currentView();
     enterTrainer();
   }
 }).catch((err) => {

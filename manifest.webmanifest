@@ -1,14 +1,14 @@
 {
   "name": "Dylan's Poker Helper",
   "short_name": "Poker Helper",
-  "description": "扑克牌局助手 (PWA)",
+  "description": "扑克 bankroll 记账与 session 计时 (PWA)",
   "lang": "zh-CN",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0f5438",
-  "theme_color": "#0f5438",
+  "background_color": "#0f0f0f",
+  "theme_color": "#0f0f0f",
   "icons": [
     {
       "src": "icons/icon-192.png",

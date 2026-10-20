@@ -1,7 +1,7 @@
 // Network-first for everything: always try to fetch fresh, fall back to
 // cache only when offline. This keeps app updates from getting stuck behind
 // stale caches during active development. App is small, perf hit is fine.
-const CACHE_VERSION = "v23";
+const CACHE_VERSION = "v24";
 const CACHE_NAME = `poker-helper-${CACHE_VERSION}`;
 
 const PRECACHE = [
@@ -11,6 +11,9 @@ const PRECACHE = [
   "./css/styles.css",
   "./js/app.js",
   "./js/config.js",
+  "./js/db.js",
+  "./js/bankroll-core.js",
+  "./js/bankroll-chart.js",
   "./js/ranges.js",
   "./js/range-grid.js",
   "./js/trainer-core.js",
@@ -50,6 +53,7 @@ self.addEventListener("fetch", (event) => {
         }
         return res;
       })
-      .catch(() => caches.match(req).then((cached) => cached || caches.match("./index.html")))
+      // ignoreSearch: index.html asks for js/app.js?v=24, the precache key is js/app.js
+      .catch(() => caches.match(req, { ignoreSearch: true }).then((cached) => cached || caches.match("./index.html")))
   );
 });

@@ -5,8 +5,8 @@
   <title>Poker Helper</title>
 
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <meta name="theme-color" content="#0f5438" />
-  <meta name="description" content="Dylan 的扑克 session 计时和记录" />
+  <meta name="theme-color" content="#0f0f0f" />
+  <meta name="description" content="Dylan 的扑克 bankroll 记账与 session 计时" />
 
   <!-- iOS PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -18,7 +18,15 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=23" />
+  <!-- Poppins (GTO Wizard's face); falls back to the system font offline -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/styles.css?v=24" />
+
+  <!-- Chart.js 4.4.1 (MIT), pinned. Loaded before app.js so window.Chart exists. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
   <!-- mobile debug console, only when ?debug=1 -->
   <script>
@@ -64,49 +72,61 @@
   </div>
 
   <!-- HOME -->
-  <section id="view-home" class="view hidden">
+  <section id="view-home" class="view view-wide hidden">
     <button type="button" id="active-banner" class="active-banner hidden">
       <span class="active-banner-label">🃏 牌局进行中</span>
       <span class="active-banner-time" id="active-banner-time">--</span>
       <span class="active-banner-arrow">→</span>
     </button>
 
-    <header class="hero">
-      <div class="spade">♠</div>
-      <h1>Poker Helper</h1>
-      <p class="subtitle">准备好就开打</p>
-      <div class="daily-motto" id="daily-motto">"..."</div>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">♠</span>
+        <div>
+          <h1>Poker Helper</h1>
+          <div class="daily-motto" id="daily-motto">"..."</div>
+        </div>
+      </div>
+      <button type="button" id="settings-btn" class="icon-btn" aria-label="设置" title="设置">⚙</button>
     </header>
 
-    <div class="card">
-      <h2>时长</h2>
-      <div class="chips" id="duration-chips">
-        <button type="button" class="chip" data-mins="120">2h</button>
-        <button type="button" class="chip selected" data-mins="180">3h</button>
-        <button type="button" class="chip" data-mins="240">4h</button>
-        <button type="button" class="chip" data-custom>自定义</button>
+    <div class="home-grid">
+      <div class="home-main">
+        <div class="kpi-row" id="home-kpis"></div>
+
+        <div class="card bankroll-mini" id="bankroll-card">
+          <h2>Bankroll <span class="card-link">全部场地 · 点开看详情 →</span></h2>
+          <div class="chart-wrap mini"><canvas id="chart-mini"></canvas></div>
+        </div>
+
+        <div class="recent">
+          <h2>最近</h2>
+          <div id="recent-list" class="recent-list"></div>
+        </div>
       </div>
-      <div id="duration-custom-wrap" class="hidden" style="margin-top:12px;">
-        <input type="number" id="duration-custom-input" min="1" max="720" inputmode="numeric" placeholder="分钟 (如 150)" />
-      </div>
-    </div>
 
-    <button id="start-btn" class="primary big">▶  Start Session</button>
-    <button type="button" id="ranges-btn-home" class="secondary">📊  翻前范围参考</button>
-    <button type="button" id="trainer-btn-home" class="secondary">🎯  翻前练习</button>
+      <aside class="home-side">
+        <button type="button" id="add-session-btn" class="primary big">＋ 记一场</button>
 
-    <div class="recent">
-      <h2>最近</h2>
-      <div id="recent-list" class="recent-list"></div>
-    </div>
+        <div class="card">
+          <h2>计时打一场</h2>
+          <div class="chips" id="duration-chips">
+            <button type="button" class="chip" data-mins="120">2h</button>
+            <button type="button" class="chip selected" data-mins="180">3h</button>
+            <button type="button" class="chip" data-mins="240">4h</button>
+            <button type="button" class="chip" data-custom>自定义</button>
+          </div>
+          <div id="duration-custom-wrap" class="hidden" style="margin-top:12px;">
+            <input type="number" id="duration-custom-input" min="1" max="720" inputmode="numeric" placeholder="分钟 (如 150)" />
+          </div>
+          <button type="button" id="start-btn" class="secondary big" style="margin-top:12px;">▶  开始计时</button>
+        </div>
 
-    <div class="card bankroll-mini" id="bankroll-card">
-      <h2>
-        Bankroll
-        <span id="pnl-total" class="pnl-total">$0</span>
-      </h2>
-      <div class="bankroll-chart" id="bankroll-chart-mini"></div>
-      <div class="bankroll-mini-hint">点击查看详情</div>
+        <div class="link-row">
+          <button type="button" id="trainer-btn-home" class="text-button">🎯 翻前练习</button>
+          <button type="button" id="ranges-btn-home" class="text-button">📊 翻前范围</button>
+        </div>
+      </aside>
     </div>
   </section>
 
@@ -119,7 +139,7 @@
       <p class="subtitle" id="running-meta">开始于 --</p>
     </header>
 
-    <button id="break-btn" class="break-btn big">☕  出去休息（暂停计时）</button>
+    <button type="button" id="break-btn" class="break-btn big">☕  出去休息（暂停计时）</button>
 
     <div class="card limp-card">
       <h2>垃圾牌 limp 计数</h2>
@@ -131,9 +151,9 @@
       <button type="button" id="limp-reset" class="text-button">重置</button>
     </div>
 
-    <button id="ranges-btn" class="secondary big">📊  翻前范围</button>
-    <button id="trainer-btn" class="secondary big">🎯  翻前练习</button>
-    <button id="end-btn" class="danger big">⏹  End Session</button>
+    <button type="button" id="ranges-btn" class="secondary big">📊  翻前范围</button>
+    <button type="button" id="trainer-btn" class="secondary big">🎯  翻前练习</button>
+    <button type="button" id="end-btn" class="danger big">⏹  End Session</button>
   </section>
 
   <!-- BREAK -->
@@ -151,7 +171,7 @@
       <div class="break-motto" id="break-motto">"..."</div>
     </div>
 
-    <button id="break-resume" class="primary big">✓  结束休息，回牌桌</button>
+    <button type="button" id="break-resume" class="primary big">✓  结束休息，回牌桌</button>
   </section>
 
   <!-- ALARM -->
@@ -168,26 +188,140 @@
     </div>
   </section>
 
-  <!-- RECORD -->
-  <section id="view-record" class="view hidden">
-    <header class="hero">
-      <h1>Session 结束</h1>
-      <p class="subtitle" id="record-summary">--</p>
-    </header>
+  <!-- SESSION FORM: record after the timer / add by hand / edit -->
+  <section id="view-session" class="view hidden">
+    <div class="ranges-header">
+      <button type="button" id="session-back" class="text-button">← 返回</button>
+      <div class="ranges-title" id="session-title">记一场</div>
+      <div style="width:60px"></div>
+    </div>
 
-    <form id="record-form" class="form">
-      <label>Buy-in (USD)
-        <input type="number" id="buy-in" step="0.01" inputmode="decimal" placeholder="0.00" required />
-      </label>
-      <label>Cash-out (USD)
-        <input type="number" id="cash-out" step="0.01" inputmode="decimal" placeholder="0.00" required />
-      </label>
-      <label>备注 (可选)
-        <textarea id="notes" rows="3" placeholder="场地 / 桌型 / 心得..."></textarea>
-      </label>
-      <button type="submit" id="save-btn" class="primary">保存</button>
-      <button type="button" id="discard-btn" class="text-button">不保存，丢弃</button>
+    <form id="session-form" class="form" novalidate>
+      <div class="field">
+        <span class="label">场地</span>
+        <div class="chips" id="venue-chips"></div>
+      </div>
+
+      <div class="field hidden" id="stakes-wrap">
+        <span class="label">级别</span>
+        <div class="chips" id="stakes-chips"></div>
+      </div>
+
+      <div class="row2 row2-dates">
+        <label>开始
+          <input type="datetime-local" id="f-started" />
+        </label>
+        <label>结束
+          <input type="datetime-local" id="f-ended" />
+        </label>
+      </div>
+
+      <div class="row2" id="live-wrap">
+        <label>Buy-in (USD)
+          <input type="number" id="f-buyin" step="0.01" min="0" inputmode="decimal" placeholder="0.00" />
+        </label>
+        <label>Cash-out (USD)
+          <input type="number" id="f-cashout" step="0.01" min="0" inputmode="decimal" placeholder="0.00" />
+        </label>
+      </div>
+
+      <div class="hidden" id="online-wrap">
+        <div class="row2">
+          <label>Buy-in (bb)
+            <input type="number" id="f-buyin-bb" step="0.5" min="0" inputmode="decimal" placeholder="100" />
+          </label>
+          <label>Cash-out (bb)
+            <input type="number" id="f-cashout-bb" step="0.5" min="0" inputmode="decimal" placeholder="137.5" />
+          </label>
+        </div>
+        <label>手数
+          <input type="number" id="f-hands" step="1" min="0" inputmode="numeric" placeholder="这场打了多少手（可空）" />
+        </label>
+      </div>
+
+      <div class="preview" id="f-preview">填完金额这里会显示盈亏</div>
+
+      <details class="more" id="f-more">
+        <summary>休息 / 备注</summary>
+        <div class="more-body">
+          <label>休息（分钟，不计入时薪）
+            <input type="number" id="f-break" step="1" min="0" inputmode="numeric" placeholder="0" />
+          </label>
+          <label>备注
+            <textarea id="f-notes" rows="2" placeholder="桌型 / 对手 / 心得..."></textarea>
+          </label>
+        </div>
+      </details>
+
+      <button type="submit" id="f-save" class="primary big">保存</button>
+      <button type="button" id="f-delete" class="danger hidden">删除这条</button>
+      <button type="button" id="f-discard" class="text-button hidden">不保存，丢弃这场</button>
     </form>
+  </section>
+
+  <!-- BANKROLL DETAIL -->
+  <section id="view-bankroll" class="view view-wide hidden">
+    <div class="ranges-header">
+      <button type="button" id="bankroll-close" class="text-button">← 主页</button>
+      <div class="ranges-title">Bankroll</div>
+      <div style="width:60px"></div>
+    </div>
+
+    <div class="chips" id="venue-filter"></div>
+
+    <div class="card chart-card">
+      <div class="chart-wrap"><canvas id="chart-full"></canvas></div>
+      <div class="muted small chart-hint">点一个折点可以编辑那场</div>
+    </div>
+
+    <div class="kpi-row full" id="bankroll-stats"></div>
+
+    <div class="recent">
+      <h2>Sessions <span class="muted" id="session-list-count"></span></h2>
+      <div id="session-list" class="recent-list"></div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="view-settings" class="view hidden">
+    <div class="ranges-header">
+      <button type="button" id="settings-close" class="text-button">← 主页</button>
+      <div class="ranges-title">设置</div>
+      <div style="width:60px"></div>
+    </div>
+
+    <div class="card">
+      <h2>数据库保活</h2>
+      <div id="keepalive-status" class="value">查询中…</div>
+      <p class="muted small">Supabase 免费档 7 天没人碰就暂停。电脑上的计划任务每天 09:30 ping 一次，这里显示库里记到的最近一次；超过一天没 ping 就去看 %LOCALAPPDATA%\PokerHelper\keepalive.log。</p>
+      <button type="button" id="ping-btn" class="secondary">现在 ping 一次</button>
+    </div>
+
+    <div class="card">
+      <h2>场地</h2>
+      <div id="venue-list" class="plain-list"></div>
+      <form id="venue-form" class="inline-form">
+        <input type="text" id="venue-name" placeholder="新场地名" maxlength="40" />
+        <select id="venue-kind">
+          <option value="live">线下（美元）</option>
+          <option value="online">线上（bb）</option>
+        </select>
+        <button type="submit" class="secondary">添加</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>级别（线上）</h2>
+      <div id="stakes-list" class="plain-list"></div>
+      <form id="stakes-form" class="inline-form">
+        <input type="text" id="stakes-code" placeholder="代号，如 NL10" maxlength="20" />
+        <input type="number" id="stakes-bb" step="0.01" min="0" inputmode="decimal" placeholder="1 bb = $" />
+        <input type="text" id="stakes-label" placeholder="说明（可选）" maxlength="60" />
+        <button type="submit" class="secondary">添加</button>
+      </form>
+    </div>
+
+    <div class="muted small settings-foot">Poker Helper v24 · 数据后端：<span id="db-mode">—</span></div>
   </section>
 
   <!-- RANGES -->
@@ -288,71 +422,6 @@
     </div>
   </section>
 
-  <!-- BANKROLL DETAIL -->
-  <section id="view-bankroll" class="view view-ranges hidden">
-    <div class="ranges-header">
-      <button type="button" id="bankroll-close" class="text-button">← 返回</button>
-      <div class="ranges-title">Bankroll 详情</div>
-      <div style="width:60px"></div>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat"><div class="stat-label">总盈亏</div><div class="stat-value" id="stat-total">$0</div></div>
-      <div class="stat"><div class="stat-label">Sessions</div><div class="stat-value" id="stat-count">0</div></div>
-      <div class="stat"><div class="stat-label">胜率</div><div class="stat-value" id="stat-winrate">—</div></div>
-      <div class="stat"><div class="stat-label">$/h</div><div class="stat-value" id="stat-hourly">—</div></div>
-    </div>
-
-    <div class="bankroll-chart" id="bankroll-chart-full"></div>
-
-    <div class="bankroll-legend">
-      <span><i class="dot dot-pos"></i>盈利</span>
-      <span><i class="dot dot-neg"></i>亏损</span>
-      <span class="muted small">点击折点看那场详情</span>
-    </div>
-
-    <div id="session-detail-card" class="card hidden">
-      <h2>选中的 Session</h2>
-      <div class="value" id="detail-summary">--</div>
-      <div class="muted small" id="detail-times">--</div>
-      <div class="detail-amounts" id="detail-amounts">--</div>
-      <div class="muted small" id="detail-notes"></div>
-      <button type="button" id="detail-edit-btn" class="primary">编辑这条</button>
-    </div>
-  </section>
-
-  <!-- EDIT EXISTING -->
-  <section id="view-edit" class="view hidden">
-    <header class="hero">
-      <h1>编辑 Session</h1>
-      <p class="subtitle" id="edit-summary">--</p>
-    </header>
-
-    <form id="edit-form" class="form">
-      <label>开始时间
-        <input type="datetime-local" id="edit-started-at" required />
-      </label>
-      <label>结束时间
-        <input type="datetime-local" id="edit-ended-at" required />
-      </label>
-      <label>目标时长（分钟）
-        <input type="number" id="edit-planned" min="1" max="720" inputmode="numeric" required />
-      </label>
-      <label>Buy-in (USD)
-        <input type="number" id="edit-buy-in" step="0.01" inputmode="decimal" required />
-      </label>
-      <label>Cash-out (USD)
-        <input type="number" id="edit-cash-out" step="0.01" inputmode="decimal" required />
-      </label>
-      <label>备注
-        <textarea id="edit-notes" rows="3"></textarea>
-      </label>
-      <button type="submit" id="edit-save-btn" class="primary">保存</button>
-      <button type="button" id="edit-delete-btn" class="danger">删除这条</button>
-      <button type="button" id="edit-cancel-btn" class="text-button">取消</button>
-    </form>
-  </section>
-
-  <script type="module" src="js/app.js?v=23"></script>
+  <script type="module" src="js/app.js?v=24"></script>
 </body>
 </html>
