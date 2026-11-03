@@ -2,7 +2,7 @@
 // index.html (cdnjs, pinned). Series come from bankroll-core.buildSeries; this
 // file only maps them onto Chart.js and the dark theme.
 
-import { fmtUsd } from "./bankroll-core.js?v=25";
+import { fmtUsd } from "./bankroll-core.js?v=26";
 
 const charts = new WeakMap();   // canvas → Chart, so re-renders destroy the old one
 

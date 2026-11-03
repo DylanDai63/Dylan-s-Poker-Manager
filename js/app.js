@@ -2,8 +2,8 @@ import { db, MOCK } from "./db.js";
 import {
   sessionPnl, sessionPnlBb, bbPer100, netPlayMs, buildSessionRow, buildSeries, buildTotalSeries, computeStats,
   venueColor, fmtUsd, fmtBb, fmtBb100, pnlClass, num,
-} from "./bankroll-core.js?v=25";
-import { renderBankrollChart } from "./bankroll-chart.js?v=25";
+} from "./bankroll-core.js?v=26";
+import { renderBankrollChart } from "./bankroll-chart.js?v=26";
 import { POSITIONS_RFI, POSITIONS_VS_UTG, POSITION_LABEL } from "./ranges.js";
 import { rangeGridHTML } from "./range-grid.js";
 import { setupTrainer, enterTrainer } from "./trainer.js";
@@ -309,20 +309,27 @@ function stopAlarm() {
 const venueById = (id) => venues.find((v) => v.id === id) || null;
 const stakesById = (id) => stakes.find((s) => s.id === id) || null;
 
+// What a screen says instead of "nothing recorded" or $0.00 while the data isn't in; null once it is.
+const notReadyText = () => ({ loading: "加载中…", failed: "加载失败，联网后重新打开 App" }[dataState] || null);
+const readySessions = () => (dataState === "ready" ? sessions : []);   // never draw or sum data known to be stale
+
 async function loadAll() {
   try {
     [venues, stakes, sessions] = await Promise.all([db.listVenues(), db.listStakes(), db.listSessions()]);
   } catch (err) {
     console.error(err);
     dataState = "failed";
+    renderHome();
     $("#recent-list").innerHTML = `<div class="recent-empty">加载失败：${esc(err.message || err)}</div>`;
     toast("加载失败：" + (err.message || err), "err");
     if (currentView() === "view-bankroll") renderBankroll();
+    if (currentView() === "view-session" && !form.venueId) fillFormChoices();
     return;
   }
   dataState = "ready";
   renderHome();
   if (currentView() === "view-bankroll") renderBankroll();
+  if (currentView() === "view-session" && !form.venueId) fillFormChoices();   // opened before the data arrived
   openDeepLink();
 }
 
@@ -415,17 +422,19 @@ function rowClickOpensEdit(rootSel, returnTo) {
 let pickedMinutes = 180;
 
 function renderHome() {
-  renderKpis($("#home-kpis"), computeStats(sessions));
-  renderSessionRows($("#recent-list"), sessions.slice(-8).reverse(), "还没记录过 session");
+  const rows = readySessions();
+  $("#home-kpis").style.visibility = notReadyText() ? "hidden" : "";   // keeps its space, so the page doesn't jump
+  renderKpis($("#home-kpis"), computeStats(rows));
+  renderSessionRows($("#recent-list"), rows.slice(-8).reverse(), notReadyText() || "还没记录过 session");
   renderMiniChart();
 }
 
 function renderMiniChart() {
-  const series = buildSeries(sessions, venues, venues.map((v) => v.id), { includeTotal: true });
+  const series = buildSeries(readySessions(), venues, venues.map((v) => v.id), { includeTotal: true });
   // The sparkline is one line: the 合计 when there are several venues, else the only venue.
   const total = series.datasets.find((d) => d.venueId === null) || series.datasets[0];
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#aafbb2";
-  renderBankrollChart($("#chart-mini"), { ...series, datasets: total ? [{ ...total, color: accent }] : [] }, { mini: true, noVenuesText: "还没记录过 session" });
+  renderBankrollChart($("#chart-mini"), { ...series, datasets: total ? [{ ...total, color: accent }] : [] }, { mini: true, noVenuesText: notReadyText() || "还没记录过 session", noSessionsText: notReadyText() || "还没记录过 session" });
 }
 
 function setupHome() {
@@ -816,12 +825,6 @@ function enterSessionForm(opts) {
   const s = form.session;
   $("#session-title").textContent = { record: "Session 结束，记一笔", add: "记一场", edit: "编辑 Session" }[form.mode];
 
-  // venue / stakes: the row's, else the last used, else the first
-  form.venueId = s ? s.venue_id : localStorage.getItem(LS_LAST_VENUE);
-  if (!venueById(form.venueId)) form.venueId = venues[0] ? venues[0].id : null;
-  form.stakesId = s && s.stakes_id ? s.stakes_id : localStorage.getItem(LS_LAST_STAKES);
-  if (!stakesById(form.stakesId)) form.stakesId = stakes[0] ? stakes[0].id : null;
-
   let startedAt, endedAt;
   if (s) {
     startedAt = new Date(s.started_at);
@@ -851,12 +854,23 @@ function enterSessionForm(opts) {
   $("#f-delete").classList.toggle("hidden", form.mode !== "edit");
   $("#f-discard").classList.toggle("hidden", form.mode !== "record");
 
+  fillFormChoices();
+  showView("view-session");
+  if (dataState === "ready" && venues.length === 0) toast("还没有场地，先去设置里加一个", "err");
+}
+
+// Pick venue / stakes (the row's, else the last used, else the first) and draw them.
+// Leaves typed inputs alone, so it can run again when the data arrives late.
+function fillFormChoices() {
+  const s = form.session;
+  form.venueId = s ? s.venue_id : localStorage.getItem(LS_LAST_VENUE);
+  if (!venueById(form.venueId)) form.venueId = venues[0] ? venues[0].id : null;
+  form.stakesId = s && s.stakes_id ? s.stakes_id : localStorage.getItem(LS_LAST_STAKES);
+  if (!stakesById(form.stakesId)) form.stakesId = stakes[0] ? stakes[0].id : null;
   renderVenueChips();
   renderStakesChips();
   applyVenueKind();
   updatePreview();
-  showView("view-session");
-  if (venues.length === 0) toast("还没有场地，先去设置里加一个", "err");
 }
 
 function renderVenueChips() {
@@ -864,7 +878,7 @@ function renderVenueChips() {
     <button type="button" class="chip ${v.id === form.venueId ? "selected" : ""}" data-id="${esc(v.id)}">
       <i class="dot" style="background:${venueColor(venues, v.id)}"></i>${esc(v.name)}
     </button>
-  `).join("") || `<span class="muted small">没有场地</span>`;
+  `).join("") || `<span class="muted small">${notReadyText() || "没有场地"}</span>`;
 }
 
 function renderStakesChips() {
@@ -872,7 +886,7 @@ function renderStakesChips() {
     <button type="button" class="chip ${st.id === form.stakesId ? "selected" : ""}" data-id="${esc(st.id)}" title="${esc(st.label || "")}">
       ${esc(st.code)} <span class="chip-sub">$${Number(st.bb_usd)}/bb</span>
     </button>
-  `).join("") || `<span class="muted small">没有级别，先去设置里加</span>`;
+  `).join("") || `<span class="muted small">${notReadyText() || "没有级别，先去设置里加"}</span>`;
 }
 
 function applyVenueKind() {
@@ -961,12 +975,12 @@ function setupSessionForm() {
       done();
       return;
     }
-    done();
     localStorage.setItem(LS_LAST_VENUE, row.venue_id);
     if (row.stakes_id) localStorage.setItem(LS_LAST_STAKES, row.stakes_id);
     if (form.mode === "record") clearActive();
     toast("已保存", "ok");
-    await leaveFormAfterWrite(form.returnTo);
+    // Save stays disabled until the form is gone: a second tap during the refresh would insert the row twice.
+    try { await leaveFormAfterWrite(form.returnTo); } finally { done(); }
   });
 
   $("#f-delete").addEventListener("click", async () => {
@@ -1009,9 +1023,11 @@ function setupSessionForm() {
 async function leaveFormAfterWrite(view) {
   try {
     await reloadSessions();
+    if (dataState !== "ready") toast("已保存，但列表刷新失败", "err");   // loadAll swallowed its own failure
   } catch (err) {
     console.error(err);
-    dataState = "failed";   // sessions is missing the row just saved; Bankroll must not show a total without it
+    dataState = "failed";   // sessions is missing the row just saved; no screen may show a total without it
+    renderHome();
     toast("已保存，但列表刷新失败：" + (err.message || err), "err");
   }
   showView(view);
@@ -1062,7 +1078,7 @@ function renderVenueFilter(sel) {
 
 function renderBankroll() {
   const totalOnly = chartMode === "total";
-  const notReady = { loading: "加载中…", failed: "加载失败，联网后重新打开 App" }[dataState];
+  const notReady = notReadyText();
   $$("#chart-mode .chip").forEach((b) => b.classList.toggle("selected", b.dataset.mode === chartMode));
   $("#venue-filter").classList.toggle("hidden", totalOnly);
   $("#chart-full-wrap").classList.toggle("tall", totalOnly);
@@ -1070,7 +1086,7 @@ function renderBankroll() {
 
   const sel = selectedVenueIds();
   if (!totalOnly) renderVenueFilter(sel);
-  const rows = notReady ? [] : sessions;   // never draw a total from data known to be stale
+  const rows = readySessions();
   const series = totalOnly ? buildTotalSeries(rows) : buildSeries(rows, venues, sel, { includeTotal: chartTotal });
   renderBankrollChart($("#chart-full"), series, {
     mini: false,
@@ -1305,8 +1321,7 @@ async function boot() {
   updateDailyMotto();
 
   // Placeholders until the data is in (the timer must not wait for the network).
-  renderKpis($("#home-kpis"), computeStats([]));
-  $("#recent-list").innerHTML = `<div class="recent-empty">加载中…</div>`;
+  renderHome();
   loadAll();  // fire and forget; home view shows immediately
 
   const s = loadActive();
