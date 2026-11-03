@@ -23,7 +23,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="css/styles.css?v=24" />
+  <link rel="stylesheet" href="css/styles.css?v=25" />
 
   <!-- Chart.js 4.4.1 (MIT), pinned. Loaded before app.js so window.Chart exists. -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -267,11 +267,16 @@
       <div style="width:60px"></div>
     </div>
 
+    <div class="seg-switch" id="chart-mode">
+      <button type="button" class="chip" data-mode="total">总线</button>
+      <button type="button" class="chip" data-mode="venues">分场地</button>
+    </div>
+
     <div class="chips" id="venue-filter"></div>
 
     <div class="card chart-card">
-      <div class="chart-wrap"><canvas id="chart-full"></canvas></div>
-      <div class="muted small chart-hint">点一个折点可以编辑那场</div>
+      <div class="chart-wrap" id="chart-full-wrap"><canvas id="chart-full"></canvas></div>
+      <div class="muted small chart-hint" id="chart-hint"></div>
     </div>
 
     <div class="kpi-row full" id="bankroll-stats"></div>
@@ -321,7 +326,7 @@
       </form>
     </div>
 
-    <div class="muted small settings-foot">Poker Helper v24 · 数据后端：<span id="db-mode">—</span></div>
+    <div class="muted small settings-foot">Poker Helper v25 · 数据后端：<span id="db-mode">—</span></div>
   </section>
 
   <!-- RANGES -->
@@ -422,6 +427,6 @@
     </div>
   </section>
 
-  <script type="module" src="js/app.js?v=24"></script>
+  <script type="module" src="js/app.js?v=25"></script>
 </body>
 </html>

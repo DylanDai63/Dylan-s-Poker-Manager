@@ -5,7 +5,7 @@
 
 import {
   VENUE_COLORS, TOTAL_COLOR, round2, num, usdFromBb, sessionPnl, sessionPnlBb, bbPer100,
-  netPlayMs, sortByStart, venueColor, buildSessionRow, buildSeries, computeStats,
+  netPlayMs, sortByStart, venueColor, buildSessionRow, buildSeries, buildTotalSeries, computeStats,
   fmtUsd, fmtBb, fmtBb100, pnlClass,
 } from "../js/bankroll-core.js";
 
@@ -149,6 +149,25 @@ eq("sortByStart", sortByStart(shuffled).map((s) => s.id), ["a", "b", "c", "d", "
 {
   const r = buildSeries(S, V, []);
   eq("nothing selected: anchor only", [r.labels.length, r.datasets.length, r.sessions.length], [1, 0, 0]);
+}
+
+console.log("buildTotalSeries");
+check("no venue shares the total's colour", !VENUE_COLORS.includes(TOTAL_COLOR));
+{
+  const r = buildTotalSeries(shuffled);
+  eq("total: every session, chronological", r.sessions.map((s) => s.id), ["a", "b", "c", "d", "e"]);
+  eq("total: anchor + one label per session", r.labels.length, 6);
+  eq("total: one line, total colour", r.datasets.map((d) => [d.venueId, d.color]), [[null, TOTAL_COLOR]]);
+  eq("total: same numbers as 合计 over all venues", r.datasets[0].data, buildSeries(S, V, ["wc", "hg", "on"]).datasets[3].data);
+  eq("total: last point = computeStats total", r.datasets[0].data.at(-1), computeStats(S).total);
+}
+{
+  const gone = { id: "x", venue_id: "deleted-venue", started_at: "2026-10-06T19:00:00Z", ended_at: "2026-10-06T20:00:00Z", buy_in: 10, cash_out: 25, break_minutes: 0 };
+  eq("total: a session with an unknown venue still counts", buildTotalSeries([...S, gone]).datasets[0].data.at(-1), 25.25);
+}
+{
+  const r = buildTotalSeries([]);
+  eq("total: no sessions", [r.labels.length, r.sessions.length, r.datasets[0].data], [1, 0, [0]]);
 }
 
 // ───────── stats ─────────

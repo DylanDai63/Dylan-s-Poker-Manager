@@ -515,7 +515,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .chip .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
 .chip.selected .dot { box-shadow: 0 0 0 2px rgba(15,15,15,0.5); }
 .chip .chip-sub { font-size: 12px; opacity: 0.75; font-weight: 400; }
-.chip .dot-total { background: var(--fg); }
+.chip .dot-total { background: var(--accent); }
 .chip:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* countdown */
@@ -767,6 +767,26 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .chart-card { padding-bottom: 10px; }
 .chart-hint { text-align: center; margin-top: 8px; }
+.chart-wrap.tall canvas { touch-action: pan-y; }   /* a sideways drag reads values, an upward one still scrolls */
+
+/* 总线 / 分场地 switch, same look as the trainer's phone tabs */
+.seg-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.seg-switch .chip {
+  border: none;
+  border-radius: 0;
+  min-height: 44px;
+  padding: 10px 8px;
+  font-size: 15px;
+  justify-content: center;
+  touch-action: manipulation;
+}
+.seg-switch .chip + .chip { border-left: 1px solid var(--border-2); }
 
 /* settings lists */
 .plain-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
@@ -807,12 +827,14 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   .home-side { position: sticky; top: 16px; }
   .chart-wrap { height: 360px; }
   .chart-wrap.mini { height: 180px; }
+  .seg-switch { max-width: 320px; }
   .kpi-row.full { grid-template-columns: repeat(8, 1fr); }
   .daily-motto { max-width: 520px; }
 }
 @media (max-width: 899px) {
   .home-grid, .home-main, .home-side { display: flex; flex-direction: column; gap: 16px; }
   .home-side { order: -1; }   /* phone: the big buttons sit under the header, the chart below */
+  .chart-wrap.tall { height: clamp(320px, 48vh, 460px); }
 }
 
 /* ───────────────────────── preflop trainer ───────────────────────── */

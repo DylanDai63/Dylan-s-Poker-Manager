@@ -2,7 +2,7 @@
 // index.html (cdnjs, pinned). Series come from bankroll-core.buildSeries; this
 // file only maps them onto Chart.js and the dark theme.
 
-import { fmtUsd } from "./bankroll-core.js";
+import { fmtUsd } from "./bankroll-core.js?v=25";
 
 const charts = new WeakMap();   // canvas → Chart, so re-renders destroy the old one
 
@@ -43,12 +43,13 @@ function clearEmpty(canvas) {
 // series: { labels: ["", iso…], sessions: [...], datasets: [{label, color, data, own, venueId}] }
 // mini: sparkline on the home card (no axes, no tooltip, area fill).
 // onPointTap(session): full chart only; a click on a session's x opens it.
-export function renderBankrollChart(canvas, series, { mini = false, onPointTap = null, noVenuesText = "没选场地" } = {}) {
+// Without it a tap just shows the tooltip.
+export function renderBankrollChart(canvas, series, { mini = false, onPointTap = null, noVenuesText = "没选场地", noSessionsText = "还没记录过 session" } = {}) {
   const old = charts.get(canvas);
   if (old) { old.destroy(); charts.delete(canvas); }
 
   if (series.datasets.length === 0) { showEmpty(canvas, noVenuesText); return null; }
-  if (series.sessions.length === 0) { showEmpty(canvas, "还没记录过 session"); return null; }
+  if (series.sessions.length === 0) { showEmpty(canvas, noSessionsText); return null; }
   if (!window.Chart) { showEmpty(canvas, "图表库没加载(离线?)"); return null; }
   clearEmpty(canvas);
 
@@ -64,7 +65,6 @@ export function renderBankrollChart(canvas, series, { mini = false, onPointTap =
       borderColor: ds.color,
       backgroundColor: ds.color,
       borderWidth: isTotal ? 2.5 : 2,
-      borderDash: isTotal ? [6, 4] : [],
       pointRadius: ds.own.map((o, i) => (o && !mini && i > 0 ? 3 : 0)),
       pointHoverRadius: mini ? 0 : 6,
       pointBackgroundColor: ds.color,
@@ -111,7 +111,7 @@ export function renderBankrollChart(canvas, series, { mini = false, onPointTap =
         },
         y: {
           display: !mini,
-          ticks: { color: muted, font: { size: 11 }, callback: (v) => `$${v}` },
+          ticks: { color: muted, font: { size: 11 }, callback: (v) => (v < 0 ? `−$${-v}` : `$${v}`) },
           grid: { color: (ctx) => (ctx.tick && ctx.tick.value === 0 ? muted : grid) },
           border: { display: false },
         },

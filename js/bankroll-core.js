@@ -3,11 +3,11 @@
 //     node scripts/test_bankroll_core.mjs
 
 // One fixed colour per venue, by the venue's index in the venues list (stable
-// no matter which venues are selected). Brand mint first.
+// no matter which venues are selected). No greens: green is the 总线's colour.
 export const VENUE_COLORS = [
-  "#aafbb2", "#5ac8fa", "#ffb347", "#c084fc", "#ff6b6b", "#facc15", "#34d399", "#f472b6",
+  "#f472b6", "#5ac8fa", "#ffb347", "#c084fc", "#ff6b6b", "#facc15", "#94a3b8", "#fdfdfd",
 ];
-export const TOTAL_COLOR = "#fdfdfd";
+export const TOTAL_COLOR = "#aafbb2";
 
 export function round2(x) { return Math.round(Number(x) * 100) / 100; }
 
@@ -149,6 +149,19 @@ export function buildSeries(sessions, venues, selectedIds, { includeTotal = true
     datasets.push({ venueId: null, label: "合计", color: TOTAL_COLOR, data: total, own: total.map(() => true) });
   }
   return { labels: ["", ...rows.map((s) => s.started_at)], sessions: rows, datasets };
+}
+
+// The 总线 view: one line over every session, whatever the venue chips are set
+// to. Same shape as buildSeries, so the chart and the stats take either.
+export function buildTotalSeries(sessions) {
+  const rows = sortByStart(sessions);
+  const data = [0];
+  for (const s of rows) data.push(round2(data[data.length - 1] + sessionPnl(s)));
+  return {
+    labels: ["", ...rows.map((s) => s.started_at)],
+    sessions: rows,
+    datasets: [{ venueId: null, label: "总线", color: TOTAL_COLOR, data, own: data.map(() => true) }],
+  };
 }
 
 // ───────────────────────── stats ─────────────────────────

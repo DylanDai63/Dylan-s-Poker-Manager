@@ -1,9 +1,9 @@
 import { db, MOCK } from "./db.js";
 import {
-  sessionPnl, sessionPnlBb, bbPer100, netPlayMs, buildSessionRow, buildSeries, computeStats,
+  sessionPnl, sessionPnlBb, bbPer100, netPlayMs, buildSessionRow, buildSeries, buildTotalSeries, computeStats,
   venueColor, fmtUsd, fmtBb, fmtBb100, pnlClass, num,
-} from "./bankroll-core.js";
-import { renderBankrollChart } from "./bankroll-chart.js";
+} from "./bankroll-core.js?v=25";
+import { renderBankrollChart } from "./bankroll-chart.js?v=25";
 import { POSITIONS_RFI, POSITIONS_VS_UTG, POSITION_LABEL } from "./ranges.js";
 import { rangeGridHTML } from "./range-grid.js";
 import { setupTrainer, enterTrainer } from "./trainer.js";
@@ -16,6 +16,7 @@ const LS_LAST_VENUE = "poker.lastVenueId";
 const LS_LAST_STAKES = "poker.lastStakesId";
 const LS_CHART_VENUES = "poker.chart.venues"; // JSON array of venue ids; absent = all
 const LS_CHART_TOTAL = "poker.chart.total";   // "0" hides the 合计 line
+const LS_CHART_MODE = "poker.chart.mode";     // "venues" = per-venue view; anything else = 总线 only
 
 let countdownRAF = null;
 let alarmInterval = null;
@@ -25,6 +26,7 @@ let audioCtx = null;
 let venues = [];                               // from db, sorted
 let stakes = [];
 let sessions = [];                             // ASC by started_at
+let dataState = "loading";                     // "loading" | "ready" | "failed"; empty lists mean "nothing recorded" only when ready
 let prevView = "view-home";                    // where to return after closing ranges / trainer
 let rangeScenario = "RFI";
 let rangePosition = "BTN";
@@ -312,11 +314,15 @@ async function loadAll() {
     [venues, stakes, sessions] = await Promise.all([db.listVenues(), db.listStakes(), db.listSessions()]);
   } catch (err) {
     console.error(err);
+    dataState = "failed";
     $("#recent-list").innerHTML = `<div class="recent-empty">加载失败：${esc(err.message || err)}</div>`;
     toast("加载失败：" + (err.message || err), "err");
+    if (currentView() === "view-bankroll") renderBankroll();
     return;
   }
+  dataState = "ready";
   renderHome();
+  if (currentView() === "view-bankroll") renderBankroll();
   openDeepLink();
 }
 
@@ -330,6 +336,7 @@ function openDeepLink() {
 }
 
 async function reloadSessions() {
+  if (dataState !== "ready") return loadAll();   // recovering from a failed load: more than sessions is missing
   sessions = await db.listSessions();
   renderHome();
   if (currentView() === "view-bankroll") renderBankroll();
@@ -1004,6 +1011,7 @@ async function leaveFormAfterWrite(view) {
     await reloadSessions();
   } catch (err) {
     console.error(err);
+    dataState = "failed";   // sessions is missing the row just saved; Bankroll must not show a total without it
     toast("已保存，但列表刷新失败：" + (err.message || err), "err");
   }
   showView(view);
@@ -1014,6 +1022,7 @@ async function leaveFormAfterWrite(view) {
 
 let chartSel = null;        // Set of venue ids, or null = all venues
 let chartTotal = true;
+let chartMode = "total";    // "total" = just the 总线, "venues" = venue chips + their lines
 
 function loadChartPrefs() {
   try {
@@ -1021,12 +1030,14 @@ function loadChartPrefs() {
     if (Array.isArray(a)) chartSel = new Set(a);
   } catch { /* defaults */ }
   chartTotal = localStorage.getItem(LS_CHART_TOTAL) !== "0";
+  chartMode = localStorage.getItem(LS_CHART_MODE) === "venues" ? "venues" : "total";
 }
 
 function saveChartPrefs() {
   if (chartSel) localStorage.setItem(LS_CHART_VENUES, JSON.stringify([...chartSel]));
   else localStorage.removeItem(LS_CHART_VENUES);
   localStorage.setItem(LS_CHART_TOTAL, chartTotal ? "1" : "0");
+  localStorage.setItem(LS_CHART_MODE, chartMode);
 }
 
 function selectedVenueIds() {
@@ -1050,16 +1061,28 @@ function renderVenueFilter(sel) {
 }
 
 function renderBankroll() {
+  const totalOnly = chartMode === "total";
+  const notReady = { loading: "加载中…", failed: "加载失败，联网后重新打开 App" }[dataState];
+  $$("#chart-mode .chip").forEach((b) => b.classList.toggle("selected", b.dataset.mode === chartMode));
+  $("#venue-filter").classList.toggle("hidden", totalOnly);
+  $("#chart-full-wrap").classList.toggle("tall", totalOnly);
+  $("#chart-hint").textContent = notReady ? "" : totalOnly ? "点图看累计金额 · 要编辑点下面的 Sessions" : "点一个折点可以编辑那场";
+
   const sel = selectedVenueIds();
-  renderVenueFilter(sel);
-  const series = buildSeries(sessions, venues, sel, { includeTotal: chartTotal });
+  if (!totalOnly) renderVenueFilter(sel);
+  const rows = notReady ? [] : sessions;   // never draw a total from data known to be stale
+  const series = totalOnly ? buildTotalSeries(rows) : buildSeries(rows, venues, sel, { includeTotal: chartTotal });
   renderBankrollChart($("#chart-full"), series, {
     mini: false,
-    onPointTap: (s) => enterSessionForm({ mode: "edit", session: s, returnTo: "view-bankroll" }),
+    onPointTap: totalOnly ? null : (s) => enterSessionForm({ mode: "edit", session: s, returnTo: "view-bankroll" }),
+    noVenuesText: notReady || "没选场地",
+    noSessionsText: notReady || "还没记录过 session",
   });
+  $("#bankroll-stats").classList.toggle("hidden", Boolean(notReady));
   renderKpis($("#bankroll-stats"), computeStats(series.sessions), { full: true });
   $("#session-list-count").textContent = series.sessions.length ? `· ${series.sessions.length}` : "";
-  renderSessionRows($("#session-list"), series.sessions.slice().reverse(), sel.length ? "这些场地还没记录" : "没选场地");
+  const emptyText = notReady || (totalOnly ? "还没记录过 session" : sel.length ? "这些场地还没记录" : "没选场地");
+  renderSessionRows($("#session-list"), series.sessions.slice().reverse(), emptyText);
 }
 
 function enterBankroll() {
@@ -1069,6 +1092,14 @@ function enterBankroll() {
 
 function setupBankroll() {
   $("#bankroll-close").addEventListener("click", () => showView("view-home"));
+  // ?. because a cached old index.html can meet this file for a few minutes after a deploy; boot must survive it.
+  $("#chart-mode")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".chip");
+    if (!btn || btn.dataset.mode === chartMode) return;
+    chartMode = btn.dataset.mode;
+    saveChartPrefs();
+    renderBankroll();
+  });
   $("#venue-filter").addEventListener("click", (e) => {
     const btn = e.target.closest(".chip");
     if (!btn || btn.disabled) return;

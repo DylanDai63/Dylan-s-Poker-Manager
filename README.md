@@ -10,7 +10,7 @@ iPhone 可安装的扑克 bankroll 记账 + session 计时 + 翻前练习, 纯�
 
 - **记账**: 场地(Wind Creek / Home game / Online poker, 设置里可加)、开始 / 结束时间、buy-in / cash-out。
   线上局按 **bb** 录入 + 级别(z2 / NL2 = $0.02/bb, 可加), 自动换算美元; 填手数就算 **bb/100**。所有金额美元。
-- **Bankroll 曲线**: 每个场地一条固定颜色的累计线, 点 chip 选显示哪些; 选了 ≥2 个场地可叠一条「合计」虚线。点折点编辑那场。
+- **Bankroll 曲线**: 顶部开关切两个视图。「总线」只画一条全部场地的绿色累计线, 点图看数值; 「分场地」每个场地一条固定颜色的累计线, 点 chip 选显示哪些, 选了 ≥2 个场地可叠一条绿色「合计」线, 点折点编辑那场。
 - **计时打一场**: 倒计时 + 休息暂停 + 到点响铃(「臭鱼」横幅)+ limp 计数, 结束后直接进记账表单。
 - **翻前范围 / 翻前练习**: GTO Wizard 8-max 范围, RFI 与 vs UTG。桌面可直接开 `index.html#trainer`。
 - **设置**: 加场地 / 加级别, 看「上次保活」时间, 手动 ping 一次。
@@ -82,7 +82,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install_keepalive_ta
 
 1. 推送到 `main` 分支。
 2. 仓库 Settings → Pages: **Source** = Deploy from a branch, **Branch** = `main` / `/ (root)`(已配好)。
-3. 等 1-2 分钟即上线。改了 js/css 记得把 `index.html` 与 `sw.js` 里的 `v=` 版本号 +1, 不然手机上可能吃到旧缓存。
+3. 等 1-2 分钟即上线。改了 js/css 记得把 `index.html` 与 `sw.js` 里的 `v=` 版本号 +1, 不然手机上可能吃到旧缓存。`js/app.js` 与 `js/bankroll-chart.js` 的 import 里也带 `?v=`, 要一起改且写法一致: Pages 缓存 10 分钟, 新 `app.js` 配旧模块会导致整个 App 打不开。
 
 ## iPhone 安装
 
